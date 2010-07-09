@@ -44,9 +44,22 @@ typedef enum {Input_IGN, Input_START, Input_CRAWL, Input_FWD, Input_REV} Input_T
 /* Exported functions ------------------------------------------------------- */
 
 class STM32Interface {
- public:
+public:
 
-  //STM32Interface::STM32Interface(){};
+  unsigned long getMillisecTimer();
+  void resetMillisecTimer();
+
+//Provide access to various motor control variables
+  unsigned short getPhaseAOffset();
+  unsigned short getPhaseBOffset();
+  short getPhase1();
+  short getPhase2();
+  short getPhase3();
+  unsigned long getRotorTimeConstant();
+  void setRotorTimeConstant(unsigned long);
+  long getSlipFreq();
+  short getFluxAngle();
+  short getElectricalAngle();
 
   /**IO from the vehcile loom*/
 
@@ -71,11 +84,8 @@ class STM32Interface {
   /** Reads the value of the specified ADC channel */
   unsigned short readADC(unsigned char channel);  //:TODO: needs to be encapsulated into +ve torque and -ve torque etc
 
-  /** Used to init the Motor Control libraries and in particular every thing needed by mainLoop*/
+  /** Used to init the Motor Control libraries*/
   int init(void);
-
-  /** Main service fuinction that services the motor control logic (to be called in a loop) */
-  int mainLoop(void); //TODO - remove this as this main loop is now implemented in Tumanako vehicle control code
 
   // Getter/Setters for the current torque setting (Iq)
   signed short getTorque(void); //read current value of Torque
@@ -84,8 +94,6 @@ class STM32Interface {
   // Getter/Setters for the current torque setting (Iq)
   signed short getSpeed(void); //read current value of Torque
   void setSpeed(signed short); //Set the target Torque value (used in torque control algorithm)
-
-  unsigned long getGlobalFlags(void);
 
   // Getter/Setters for the current flux setting (Id)
   signed short getFlux(void); //read current value of rotor Flux
@@ -101,6 +109,9 @@ class STM32Interface {
   //Get current bus voltage (TODO - define scales etc)
   short busVoltage(void);
 
+  //Get current temperature from power stage
+  short powerStageTemperature(void);
+
   //returns 0 if no issues
   short testVariousMotorParam(void);
 
@@ -109,9 +120,7 @@ class STM32Interface {
   void setK2(bool status);
   void setK3(bool status);
 
-  //initiate precharge logic (TODO, extract this to Tumanako level)
-  bool doPrecharge(void);
-
+  //Wait specified number of milliseconds (ms)
   void wait(unsigned short time);
 
   //Sanity checks (TODO paramatise this)
@@ -132,7 +141,6 @@ class STM32Interface {
   //Shutdown motor control and power stage
   void shutdownPower();
 
-  void evalBoardFeatures();   //TODO remove (this is STM32 motor kit specific)
 };
 #endif /* __STM32_MAIN_H */
 /*******************************************************END OF FILE************/
