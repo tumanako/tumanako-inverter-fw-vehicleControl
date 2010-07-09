@@ -21,8 +21,7 @@
 #ifndef TUMANAKO_INVERTER_HPP
 #define TUMANAKO_INVERTER_HPP
 
-#define TUMANAKO_WS28  //uncomment this to build for the WS28 motor in the Saker
-
+#include <Tumanako/tumanako_global.hpp>
 #include <Tumanako/STM32_interface.hpp>
 
 /*----------------------------- Private typedef ------------------------------*/
@@ -39,11 +38,9 @@ typedef enum {RunState_IDLE, RunState_READY, RunState_RUN, RunState_ERROR} RunSt
 
 class TumanakoInverter {
 
-
 public:
 //Constructor
 TumanakoInverter();
-
 
 // Get status of the contactors (requires ignition on first)
 bool getContactorsEngaged(void);
@@ -59,27 +56,25 @@ bool getEmergencyStop(void);
 // down or stay in fwd...
 Direction_T getDirection(void);
 
-
 void checkVehcileControlInputs();
 void doIt(void);
 void stateMachineDo(void);
 
 private:
+  
+  bool doPrecharge(void);
   void flash();  //Flash a LED
   
-  short mAcceleratorRef;  //from ADC_14
-  short mRawAcceleratorRef;  //from ADC_14
+  short mAcceleratorRef;  //actually this represents +ve and -ve torque
+  unsigned short mRawAcceleratorRef;  //from ADC
   short mCountMinThrottleError;
   short mCountMaxThrottleError;
-  
   short mPrevAccRef; //used to detect violent direction change
   STM32Interface mSTM32;
   RunState_T mState;
-  
   bool mFlashRunLED;  //TODO encapsulate flash logic
   bool mOldIGN; //used for debounce
   bool mOldStart; //used for debounce
-  
   short mAcceleratorMIN;  //Min expected value
   short mAcceleratorMAX;  //Max expected value
 };
