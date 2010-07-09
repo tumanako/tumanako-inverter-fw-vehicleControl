@@ -38,33 +38,33 @@ typedef enum {RunState_IDLE, RunState_READY, RunState_RUN, RunState_ERROR} RunSt
 
 class TumanakoInverter {
 
-public:
+ public:
 //Constructor
-TumanakoInverter();
+  TumanakoInverter();
 
 // Get status of the contactors (requires ignition on first)
-bool getContactorsEngaged(void);
+  bool getContactorsEngaged(void);
 
 // Get get status of the emergency stop (physical shutdown logic also
 // implemented via an interupt)
-bool getEmergencyStop(void);
+  bool getEmergencyStop(void);
 
 // Get status of the driving direction
 // TRUE = forwards
 // FALSE = backwards
 // should have double logic (i.e. two bits to check?)  If not consistant shut
 // down or stay in fwd...
-Direction_T getDirection(void);
+  Direction_T getDirection(void);
 
-void checkVehcileControlInputs();
-void doIt(void);
-void stateMachineDo(void);
+  void checkVehcileControlInputs();
+  void doIt(void);
+  void stateMachineDo(void);
 
-private:
-  
+ private:
+
   bool doPrecharge(void);
   void flash();  //Flash a LED
-  
+
   short mAcceleratorRef;  //actually this represents +ve and -ve torque
   unsigned short mRawAcceleratorRef;  //from ADC
   short mCountMinThrottleError;
