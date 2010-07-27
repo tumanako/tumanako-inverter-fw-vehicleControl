@@ -49,6 +49,12 @@ public:
   unsigned long getMillisecTimer();
   void resetMillisecTimer();
 
+  //returns the scaled bus voltage direct from a single digital conversion
+  unsigned short getRawScaledBusVolt();
+    
+  //returns the digital bus voltage A/D conversion without SI unit scaling
+  unsigned short getRawBusVolt();
+
 //Provide access to various motor control variables
   unsigned short getPhaseAOffset();
   unsigned short getPhaseBOffset();
@@ -106,7 +112,7 @@ public:
   //Is the bus voltage OK? (TODO - more work needed here.  Must expose limits etc...)
   bool busVoltageOK(void);
 
-  //Get current bus voltage (TODO - define scales etc)
+  //Get current bus voltage (via a historical 16 reading average)
   short busVoltage(void);
 
   //Get current temperature from power stage

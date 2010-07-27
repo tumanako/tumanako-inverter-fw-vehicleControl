@@ -27,6 +27,7 @@
 /*----------------------------- Private typedef ------------------------------*/
 typedef enum {FWD, REV, NET} Direction_T;
 typedef enum {RunState_IDLE, RunState_READY, RunState_RUN, RunState_ERROR} RunState_T;
+typedef enum {PreCharge_OK, PreCharge_PHASE1_ERROR, PreCharge_PHASE2_ERROR} PreCharge_T;
 
 /*----------------------------- Public define -------------------------------*/
 #define TK_FORWARD true
@@ -59,12 +60,16 @@ class TumanakoInverter {
   void checkVehcileControlInputs();
   void doIt(void);
   void stateMachineDo(void);
+  
+  void dashboard();
 
  private:
 
-  bool doPrecharge(void);
+  PreCharge_T doPrecharge(void);
   void flash();  //Flash a LED
 
+  unsigned long mLoopTime; 
+  signed short mMotorRPM;
   short mAcceleratorRef;  //actually this represents +ve and -ve torque
   unsigned short mRawAcceleratorRef;  //from ADC
   short mCountMinThrottleError;

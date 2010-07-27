@@ -20,9 +20,11 @@
 #ifndef TUMANAKO_GLOBAL_HPP
 #define TUMANAKO_GLOBAL_HPP
 
-#define TUMANKAO_VERSION "0.90.6 ShireVan"
+#define TUMANKAO_VERSION "0.93.0 ShireVan"
 
-#define TUMANAKO_PRECHARGE_V 250  //voltage precharge is required to reach before main contactors engage (ShireVan specific)
+#define TUMANAKO_PRECHARGE_V 290  //voltage precharge is required to reach before main contactors engage (ShireVan specific)
+#define TUMANAKO_MIN_PRECHARGE_TIME 1000 //1 sec - No matter what happens a successful precharge will take at least this long
+#define TUMANAKO_MAX_PRECHARGE_TIME 3000 //3 sec - If a precharge takes longer than this, precharge is considered a failure.
 
 //Which Motor parameters - comment all of these for the test rig (or uncomment the appropriate alternative application)
 //#define TUMANAKO_WS28  //uncomment this to build for the WS28 motor in the Saker
