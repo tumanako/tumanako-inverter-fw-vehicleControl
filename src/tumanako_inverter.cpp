@@ -115,15 +115,29 @@ PreCharge_T TumanakoInverter::doPrecharge() {
   unsigned short previousBusVoltage = 0;
   unsigned short busVoltage;
 
+  //Check contactors are off to start with (if not indicates error elsewhere in system)
+  if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == false) && (mSTM32.getK3() == false))) {
+    mSTM32.shutdownPower(); //contactors off, timers off, everything off!
+    usartWriteChars("\nCONTACOR_FEEDBACK_ERROR - ', At precharge start, not all contactors are off! (not really a precharge error though)'");
+    return PreCharge_CONTACOR_FEEDBACK_ERROR;
+  }
+  
   //start precharge
   mSTM32.setK2(false);  //to be sure K2 is off
   mSTM32.setK1(true);
   mSTM32.setK3(true);
+  mSTM32.wait(TUMANAKO_PRECHARGE_FEEDBACK_TIME); //allow contactor change to settle
 
-  unsigned long startTime = mSTM32.getMillisecTimer();
- 
+  printFormat("sbsbsbs","\n\rK1=",mSTM32.getK1(),"\n\rK2=",mSTM32.getK2(),"\n\rK3=",mSTM32.getK3(),"\n\r");
+
+  //Test contactor feedback
+  if (!((mSTM32.getK1() == true) && (mSTM32.getK2() == false) && (mSTM32.getK3() == true))) {
+    mSTM32.shutdownPower(); //contactors off, timers off, everything off!
+    usartWriteChars("\nCONTACOR_FEEDBACK_ERROR - ', Initial contactor setup failed.'");
+    return PreCharge_CONTACOR_FEEDBACK_ERROR;
+  }
   
-  //TODO check Precharge contactor feedback!
+  unsigned long startTime = mSTM32.getMillisecTimer();
   
   //TODO these two while loops could be combined (must retain 1 sec min precharge time though)
     
@@ -136,8 +150,8 @@ PreCharge_T TumanakoInverter::doPrecharge() {
       previousBusVoltage = busVoltage;
       mSTM32.wait(100);
     } else { //Error: Voltage is not changing and we have not reached target voltage!
-      usartWriteChars("\nERROR - 'Voltage is not changing and we have not reached target voltage!'");
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
+      usartWriteChars("\nERROR - 'Voltage is not changing and we have not reached target voltage!'");
       return PreCharge_PHASE1_ERROR;  //Precharge failed
     }
   }
@@ -150,16 +164,26 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     if ((mSTM32.getMillisecTimer() - startTime) < TUMANAKO_MAX_PRECHARGE_TIME) {  //MAX_PRECHARGE_TIME
       mSTM32.wait(100); //wait and then try again
     } else { //Error: MAX_PRECHARGE_TIME has elapsed and precharge not finished!
-      usartWriteChars("\nERROR - 'MAX_PRECHARGE_TIME has elapsed and precharge not finished!'");
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
+      usartWriteChars("\nERROR - 'MAX_PRECHARGE_TIME has elapsed and precharge not finished!'");
       return PreCharge_PHASE2_ERROR;  //Precharge failed
     }
   };
   
   //precharge finished, full opperating current begins
-  mSTM32.setK2(true);
-  mSTM32.setK1(false);
-    
+  mSTM32.setK2(true);   //main circuit on
+  mSTM32.setK1(false);  //precharge circuit off
+  mSTM32.wait(TUMANAKO_PRECHARGE_FEEDBACK_TIME); //allow contactor change to settle
+
+  printFormat("sbsbsbs","\n\n\rK1=",mSTM32.getK1(),"\n\rK2=",mSTM32.getK2(),"\n\rK3=",mSTM32.getK3(),"\n\r");
+
+  //Test contactor feedback
+  if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == true) && (mSTM32.getK3() == true))) {
+    mSTM32.shutdownPower(); //contactors off, timers off, everything off!
+    usartWriteChars("\nCONTACOR_FEEDBACK_ERROR - ',Precharge complete, but final contactor change failed.'");
+    return PreCharge_CONTACOR_FEEDBACK_ERROR;
+  } 
+  
   printFormat("sI","\r\nPrecharge COMPLETE, elapsed time: ",mSTM32.getMillisecTimer() - startTime);
 
   return(PreCharge_OK); //return true if precharge OK.

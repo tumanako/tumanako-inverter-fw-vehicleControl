@@ -122,6 +122,9 @@ public:
   short testVariousMotorParam(void);
 
   //Contactor controls (See diagram here: http://liionbms.com/php/precharge.php)
+  bool getK1();
+  bool getK2();
+  bool getK3();
   void setK1(bool status);
   void setK2(bool status);
   void setK3(bool status);
