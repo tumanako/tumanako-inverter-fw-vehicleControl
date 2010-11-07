@@ -20,12 +20,12 @@
 #ifndef TUMANAKO_GLOBAL_HPP
 #define TUMANAKO_GLOBAL_HPP
 
-#define TUMANKAO_VERSION "0.93.2 ShireVan"
+#define TUMANKAO_VERSION "0.94.3"
 
 #define TUMANAKO_PRECHARGE_V 290  //voltage precharge is required to reach before main contactors engage (ShireVan specific)
 #define TUMANAKO_MIN_PRECHARGE_TIME 1000 //1 sec - No matter what happens a successful precharge will take at least this long
 #define TUMANAKO_MAX_PRECHARGE_TIME 3000 //3 sec - If a precharge takes longer than this, precharge is considered a failure.
-#define TUMANAKO_PRECHARGE_FEEDBACK_TIME 5 //5 millisec - Allow time for contactors to change
+#define TUMANAKO_PRECHARGE_FEEDBACK_TIME 25 //25 millisec - Allow time for contactors to change
 
 //Which Motor parameters - comment all of these for the test rig (or uncomment the appropriate alternative application)
 //#define TUMANAKO_WS28  //uncomment this to build for the WS28 motor in the Saker
@@ -35,15 +35,18 @@
 //#define TUMANAKO_STANDARD   //uncomment this to build standard vehicle control
 #define TUMANAKO_SHIRE   //uncomment this to build for the Shire Van (fixed in FWD, runs at 1000 RPM during idle to run pumps etc) 
 
-//Which powerstage - uncomment for SKiiP
+//Which powerstage - uncomment for SKAI
 #define TUMANAKO_SKAI
+
+#define TUMANAKO_BRK_HIGH //Shire Van and board 002) also 001 by the looks!?
 
 //Which control board - uncomment for KiwiAC
 #define TUMANAKO_KIWIAC //uncomment this to use with KiwiAC control board (as apposed to orginal ST Eval board and Tumanako interface board)
 
 //#define TUMANAKO_TEST //uncomment this to run automated test (engage contactors and run for 30 sec)
+//#define TUMANAKO_PRECHARGE_TEST //uncomment this to run automated precharge test
+#define TUMANAKO_TEST_TORQUE_REF 500
 
-#define TK_DYNAMIC_TIMECONSTANT //uncomment to allow runtime changes to the Rotor Time Constant (via Crawl digital input - HACK)
-
+//#define TK_DYNAMIC_TIMECONSTANT //uncomment to allow motor specific and runtime changes to the Rotor Time Constant (via Crawl digital input - HACK)
 
 #endif

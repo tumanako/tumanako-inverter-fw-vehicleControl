@@ -51,29 +51,64 @@
 
 
 #ifdef TUMANAKO_STANDARD
+
 #define THROTTLE_POT_MAX 63000
 #define THROTTLE_POT_MIN 0
 #define TORQUE_MAX 19000
 #define TORQUE_MIN 0
+#define ZERO_THROTTLE_TORQUE 0 //want to run at ~800 RPM (to be tuned)
+#define START_REGEN_RAMP_RPM 750
+#define END_REGEN_RAMP_RPM 1950
+
 #elif defined(TUMANAKO_SHIRE)
+
 #define THROTTLE_POT_MAX 22100 //measured 2371 (P1 180 Ohm)
 #define THROTTLE_POT_MIN 3610 //measured 398  (P1 180 Ohm)
 //#define THROTTLE_POT_MAX 63000
 //#define THROTTLE_POT_MIN 200
-#define TORQUE_MAX 19000
-#define TORQUE_MIN -50
-#define ZERO_THROTTLE_TORQUE 1500 //want to run at 1000-1500 RPM (to be tuned)
+#define TORQUE_MAX 25000  //was 19000
+#define TORQUE_MIN -250   //was -50
+#define ZERO_THROTTLE_TORQUE 1200 //want to run at ~800 RPM (to be tuned)
 #define START_REGEN_RAMP_RPM 750
 #define END_REGEN_RAMP_RPM 950
+
 #else //i.e. Test bench by default
+
 #define THROTTLE_POT_MAX 63000
 #define THROTTLE_POT_MIN 0
 #define TORQUE_MAX 1200
 #define TORQUE_MIN 0
+#define ZERO_THROTTLE_TORQUE 0
+#define START_REGEN_RAMP_RPM 750
+#define END_REGEN_RAMP_RPM 950
+
 #endif
 
+#ifdef TUMANAKO_WS28
+#define DEFAULT_FLUX 14000  //keep stationary flux low (reduce power consumption and cool down!)
+    //use flux set 14000 with WS28 at Athol's - It ran real well!
+#elif defined(TUMANAKO_WS20)
+#define DEFAULT_FLUX 8000  //was 2400, was 9000
+#else // Eds Test motor
+#define DEFAULT_FLUX 30 //was 12
+#endif
+
+//Constants for linear equation to map throttle input to torque request
 #define TUMANAKO_A (((float)TORQUE_MAX - TORQUE_MIN) / (THROTTLE_POT_MAX - THROTTLE_POT_MIN))
 #define TUMANAKO_B (TORQUE_MIN - TUMANAKO_A * THROTTLE_POT_MIN)
+
+#define FLUX_MIN 2500
+#define FLUX_MAX DEFAULT_FLUX
+#define FIELD_WEAKENING_RPM_START 3000  
+#define FIELD_WEAKENING_RPM_END 6000  //range between START and END must be less than range between FLUX_MAX and FLUX_MIN
+
+//Constants for linear equation to map RPM to flux request (stregthen from low point durin idle)
+#define FIELD_STREGTHEN_RPM_START 1000 //Must be greater than END_REGEN_RAMP_RPM 
+#define FIELD_STREGTHEN_RPM_END 1500  //Must be less than FIELD_WEAKENING_RPM_END
+
+//Constants for linear equation to map RPM to flux request
+#define TUMANAKO_FLUX_A (((float)FLUX_MAX - FLUX_MIN) / (FIELD_STREGTHEN_RPM_END - FIELD_STREGTHEN_RPM_START))
+#define TUMANAKO_FLUX_B (FLUX_MIN - TUMANAKO_FLUX_A * FIELD_STREGTHEN_RPM_START)
 
 #define THROTTLE_ERROR_COUNT 6
 
@@ -85,13 +120,16 @@ TumanakoInverter::TumanakoInverter():
     mState(RunState_IDLE),
     mOldIGN(true),
     mOldStart(false),
+    mFlux(DEFAULT_FLUX),
     mAcceleratorRef(0),
     mPrevAccRef(0),
     mFlashRunLED(false),
     mAcceleratorMIN(10),  //TODO - To be configured via setup software
     mAcceleratorMAX(5000),  //TODO - To be configured via setup software
     mCountMinThrottleError(0),
-    mCountMaxThrottleError(0) {}
+    mCountMaxThrottleError(0),
+    mMotorStallError(0),
+    mMotorDirectionError(0){}
 
 //------------------------------------------------------------------------------
 Direction_T TumanakoInverter::getDirection(void) {
@@ -118,8 +156,8 @@ PreCharge_T TumanakoInverter::doPrecharge() {
   //Check contactors are off to start with (if not indicates error elsewhere in system)
   if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == false) && (mSTM32.getK3() == false))) {
     mSTM32.shutdownPower(); //contactors off, timers off, everything off!
-    usartWriteChars("\nCONTACOR_FEEDBACK_ERROR - ', At precharge start, not all contactors are off! (not really a precharge error though)'");
-    return PreCharge_CONTACOR_FEEDBACK_ERROR;
+    usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ', At precharge start, not all contactors are off! (not really a precharge error though)'");
+    return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   }
   
   //start precharge
@@ -133,13 +171,13 @@ PreCharge_T TumanakoInverter::doPrecharge() {
   //Test contactor feedback
   if (!((mSTM32.getK1() == true) && (mSTM32.getK2() == false) && (mSTM32.getK3() == true))) {
     mSTM32.shutdownPower(); //contactors off, timers off, everything off!
-    usartWriteChars("\nCONTACOR_FEEDBACK_ERROR - ', Initial contactor setup failed.'");
-    return PreCharge_CONTACOR_FEEDBACK_ERROR;
+    usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ', Initial contactor setup failed.'");
+    return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   }
   
   unsigned long startTime = mSTM32.getMillisecTimer();
   
-  //TODO these two while loops could be combined (must retain 1 sec min precharge time though)
+  //TODO these two while loops could be combined (must retain 1 sec min precharge time though as a design safety feature - ie code design guarantiees 1 sec precharge even if bugs or feedback errors exist)
     
   //wait "at least" 1 sec and check that voltage is actually rising (or target Voltage reached)
   while ((mSTM32.getMillisecTimer() - startTime) < TUMANAKO_MIN_PRECHARGE_TIME) {//MIN_PRECHARGE_TIME
@@ -151,7 +189,7 @@ PreCharge_T TumanakoInverter::doPrecharge() {
       mSTM32.wait(100);
     } else { //Error: Voltage is not changing and we have not reached target voltage!
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
-      usartWriteChars("\nERROR - 'Voltage is not changing and we have not reached target voltage!'");
+      usartWriteChars("\n\n\r  ERROR - 'Voltage is not changing and we have not reached target voltage!'");
       return PreCharge_PHASE1_ERROR;  //Precharge failed
     }
   }
@@ -165,7 +203,7 @@ PreCharge_T TumanakoInverter::doPrecharge() {
       mSTM32.wait(100); //wait and then try again
     } else { //Error: MAX_PRECHARGE_TIME has elapsed and precharge not finished!
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
-      usartWriteChars("\nERROR - 'MAX_PRECHARGE_TIME has elapsed and precharge not finished!'");
+      usartWriteChars("\n\n\r  ERROR - 'MAX_PRECHARGE_TIME has elapsed and precharge not finished!'");
       return PreCharge_PHASE2_ERROR;  //Precharge failed
     }
   };
@@ -178,15 +216,16 @@ PreCharge_T TumanakoInverter::doPrecharge() {
   printFormat("sbsbsbs","\n\n\rK1=",mSTM32.getK1(),"\n\rK2=",mSTM32.getK2(),"\n\rK3=",mSTM32.getK3(),"\n\r");
 
   //Test contactor feedback
-  if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == true) && (mSTM32.getK3() == true))) {
+  //if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == true) && (mSTM32.getK3() == true))) {
+  if ( ! mSTM32.getContactorsInRunStateConfiguration() ) {
     mSTM32.shutdownPower(); //contactors off, timers off, everything off!
-    usartWriteChars("\nCONTACOR_FEEDBACK_ERROR - ',Precharge complete, but final contactor change failed.'");
-    return PreCharge_CONTACOR_FEEDBACK_ERROR;
+    usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ',Precharge complete, but final contactor change failed.'");
+    return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   } 
   
   printFormat("sI","\r\nPrecharge COMPLETE, elapsed time: ",mSTM32.getMillisecTimer() - startTime);
 
-  return(PreCharge_OK); //return true if precharge OK.
+  return(PreCharge_OK); //return precharge OK.
 }
 
 //------------------------------------------------------------------------------
@@ -205,6 +244,17 @@ void TumanakoInverter::flash() {
       led_on=true;
     }
     last_flash_ms=mSTM32.getMillisecTimer();
+  }
+}
+
+//very crude non timer based delay, used during power up (roughly provides 1 ms delay for each multple)
+void TumanakoInverter::delay (int multiple) {
+  while (multiple !=0) {
+    volatile long i=1000;
+    while (i!=0) {
+      i--;
+    }
+    multiple--;
   }
 }
 
@@ -227,23 +277,27 @@ short convertToDegrees(short digitalAngle) {
 //------------------------------------------------------------------------------
 //Main application loop
 void TumanakoInverter::doIt(void) {
+  //signed long power = 0;
+  unsigned long end_time_ms, start_time_ms;
+  //bool oldCrawl = false;
     
 #ifndef TUMANAKO_SHIRE
   Direction_T direction = NET;
 #endif
-  signed long power = 0;
-  unsigned long end_time_ms, start_time_ms;
 
 #ifdef TUMANAKO_TEST
   unsigned long first_time_ms = 0;
 #endif
-
-  bool oldCrawl = false;
-
+  
   //clear lights
   mSTM32.setRunLED(false);
   mSTM32.setErrorLED(false);
-
+  
+  //crude delay to allow powerstage logic to initalise.
+  //{otherwise KiwiAC interupt driven sanity checks kick in and 
+  //complain that powerstage is sick)
+  delay(1000); //roughly 1 sec delay 
+    
   mSTM32.init();
   usartInit();
   mSTM32.resetMillisecTimer();
@@ -252,7 +306,6 @@ void TumanakoInverter::doIt(void) {
   first_time_ms = mSTM32.getMillisecTimer();
 #endif
 
-  mSTM32.wait(1000);  //pause before startup
     
   while (1) { //Main loop
     end_time_ms = mSTM32.getMillisecTimer();
@@ -273,11 +326,12 @@ void TumanakoInverter::doIt(void) {
     mRawAcceleratorRef = mSTM32.readADC(ACCEL_AI);
     mAcceleratorRef = (short)((TUMANAKO_A * mRawAcceleratorRef) + TUMANAKO_B);
 
+#ifndef TUMANAKO_TEST
     //Check throttle limits (indicates wiring fault)
     if (mRawAcceleratorRef > THROTTLE_POT_MAX) {
       mCountMaxThrottleError++;
       if (mCountMaxThrottleError > THROTTLE_ERROR_COUNT) {
-        if (mState != RunState_ERROR) usartWriteChars("\nERROR - 'POT_MAX exceeded! Check Throttle wires.'");
+        if (mState != RunState_ERROR) usartWriteChars("\n\n\r  ERROR - 'POT_MAX exceeded! Check Throttle wires.'");
         mState = RunState_ERROR;
         mAcceleratorRef = 0;
       }
@@ -287,27 +341,26 @@ void TumanakoInverter::doIt(void) {
 #pragma diag_default=Pe186 //PCC
       mCountMinThrottleError++;
       if (mCountMinThrottleError > THROTTLE_ERROR_COUNT) {
-        if (mState != RunState_ERROR) usartWriteChars("\nERROR - 'POT_MIN exceeded! Check Throttle wires.'");
+        if (mState != RunState_ERROR) usartWriteChars("\n\n\r  ERROR - 'POT_MIN exceeded! Check Throttle wires.'");
         mState = RunState_ERROR;
         mAcceleratorRef = 0;
       }
     } else mCountMinThrottleError=0; //reset error count
-
-    //Regenerative braking
+#endif //NOT TUMANAKO_TEST
+    
+    //Constant speed and Regenerative braking logic
     mMotorRPM = mSTM32.getRPM(); 
     if ((mAcceleratorRef < 0) && (mMotorRPM < 800)) {
-      //Prevent regen if RPM < 600
+      //Prevent regen if RPM < START_REGEN_RAMP_RPM
       if (mMotorRPM <= START_REGEN_RAMP_RPM)
-        mAcceleratorRef = ZERO_THROTTLE_TORQUE;
-      //Regen Zero band, 600->620 RPM is zero band for torque
+        mAcceleratorRef = ZERO_THROTTLE_TORQUE;  //could do with a ramp here as well (this is what makes ShireVan motor surge when idleing occasionally)
+      //Regen Zero band, 750->770 RPM is zero band for torque
       else if (mMotorRPM <= (START_REGEN_RAMP_RPM+20))
         mAcceleratorRef = 0;       
-      //Regen ramp, 620->800 RPM ramps regen from 0 to mAcceleratorRef (which is -ve here)
+      //Regen ramp, 770->950 RPM ramps regen from 0 to mAcceleratorRef (which is -ve here)
       else if (mMotorRPM < END_REGEN_RAMP_RPM) 
         mAcceleratorRef = (mMotorRPM - (START_REGEN_RAMP_RPM+20)) * mAcceleratorRef/(END_REGEN_RAMP_RPM - (START_REGEN_RAMP_RPM+20));
     }
-
-    //mAcceleratorRef = 2;  //Test RotorTimeConstant
     
 #ifndef TUMANAKO_SHIRE //(Shire Van is always in FWD, so dont do this)
     //provide dead spot in pot curve
@@ -317,16 +370,16 @@ void TumanakoInverter::doIt(void) {
 #endif
     
     //temp hack for experimental Rotor Time Constant tuning
-    if (mSTM32.getCrawl() == true && oldCrawl == false) {
-      mSTM32.setRotorTimeConstant(mSTM32.getRotorTimeConstant()-1);
-    }
+    //if (mSTM32.getCrawl() == true && oldCrawl == false) {
+      //mSTM32.setRotorTimeConstant(mSTM32.getRotorTimeConstant()-1);
+    //}
 
     //Detect crawl mode and reduce torque appropriately (temp disabled)
     if (false) { //mSTM32.getCrawl() == true)
       mAcceleratorRef/=2;
       if ((mMotorRPM > 300)) mAcceleratorRef=0;  //no torque if RPM above limit
     }
-    oldCrawl = mSTM32.getCrawl();
+    //oldCrawl = mSTM32.getCrawl();
 
 #ifndef TUMANAKO_SHIRE //(Shire Van is always in FWD, so dont do this)
     //TODO add speed limit to this logic
@@ -340,54 +393,77 @@ void TumanakoInverter::doIt(void) {
 
     //TODO simple traction control logic
 
-#ifdef TUMANAKO_WS28
-    mSTM32.setFlux(14000);  //keep stationary flux low (reduce power consumption and cool down!)
-    //use flux set 14000 with WS28 at Athol's - It ran real well!
 
-    /* This section not used at Athol's
-    //A little bit of manual tuning to give more current to Torque and less to Flux as RPM increases
-    if (motorFreq<50 && mAcceleratorRef>200)
-    {
-      mSTM32.setFlux(9107);
+    
+    //Field Weakening (Flux control)
+    if (mMotorRPM < END_REGEN_RAMP_RPM) {
+      mFlux = FLUX_MIN; 
+    } else if (mMotorRPM < FIELD_STREGTHEN_RPM_END) {
+      //New code to smooth flux bump
+      mFlux = (unsigned short)((TUMANAKO_FLUX_A * mMotorRPM) + TUMANAKO_FLUX_B);
+      if ((mFlux < FLUX_MIN) || (mFlux > FLUX_MAX)) mFlux = FLUX_MIN + 73;  //This indicates an error in the calc above
+    } else if (mMotorRPM > FIELD_WEAKENING_RPM_START) {
+      mFlux = FLUX_MAX - TK_ABS(mMotorRPM);
+    } else if (mMotorRPM > FIELD_WEAKENING_RPM_END) {
+      mFlux = FLUX_MIN;
+    } else {
+      mFlux = FLUX_MAX;  //default flux
     }
-    else if (mAcceleratorRef==0)
-    {
-      mSTM32.setFlux(3000);  //keep stationary flux low (reduce power consumption and cool down!)
-    }
-    else if (motorFreq > 200)//RPM > 200 or mAcceleratorRef < 200 (but not 0)
-    {
-      mSTM32.setFlux(5000);
-    }
-    else //RPM >50 but < 200 or mAcceleratorRef < 200 (but not 0)
-    {
-      mSTM32.setFlux(6000);
-    }
-    */
-#elif defined(TUMANAKO_WS20)
-    mSTM32.setFlux(2400);
-#else // Eds Test motor
-    mSTM32.setFlux(30); //was 12
-#endif
-
-#ifdef TUMANAKO_TEST
-    mSTM32.setTorque(500);
-#else
+    mSTM32.setFlux(mFlux);
+       
+    #ifdef TUMANAKO_TEST
+    mAcceleratorRef = TUMANAKO_TEST_TORQUE_REF;
+    #endif
+    
+    //Wrong direction detect (current motor control can flip into reverse direction after a stall, hence the need for this code)
+    if (((mSTM32.getTorque() >= 0) && (mMotorRPM < 0)) ||
+        ((mSTM32.getTorque() < 0) && (mMotorRPM > 0)) ) {
+      mMotorDirectionError++;
+      if (mMotorDirectionError >= 10) {
+        //if (mState != RunState_ERROR) usartWriteChars("\n\n\r  ERROR - 'MOTOR_DIRECTION_REVERSED! Check vehicle.'");
+        //mState = RunState_ERROR;
+        
+        //Zero accelerator and flux to regain sanity at motor control level (TODO understand why it behaves this way)
+        mAcceleratorRef = 0;
+        mFlux = 0;
+      }
+    } else {
+      if (mMotorDirectionError > 0) {
+        mMotorDirectionError--;
+      }
+      else {
+        mFlux = DEFAULT_FLUX;
+      }
+    }  
+    
     mSTM32.setTorque(mAcceleratorRef);
-#endif
-
+    
     mPrevAccRef = mAcceleratorRef;
     stateMachineDo();   //main vehicle control state machine
     dashboard();   //write dashboard type data to USART1
 
     if (mState == RunState_RUN) {
-      //Only test if motor on!
-      power = mSTM32.getTorque() * mSTM32.getRPM();
+      //Only run these tests if motor on!
+      
+      //power = mSTM32.getTorque() * mSTM32.getRPM();
       if (!mSTM32.busVoltageOK()) { // || (power > TUMANAKO_MAX_REGEN_POWER))
         //Go to error state and Log error to serial
         mState = RunState_ERROR;
-        usartWriteChars("\nERROR - 'TUMANAKO_MAX_REGEN_POWER exceeded!'");  //print stuff to RS232
+        usartWriteChars("\n\n\r  ERROR - 'TUMANAKO_MAX_REGEN_POWER exceeded!'");  //print stuff to RS232
         //break;
       }
+
+#ifndef TUMANAKO_TEST  //can't test this easily on the test rig currently
+      //Check contactor feedback
+      //if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == true) && (mSTM32.getK3() == true))) {
+      if ( ! mSTM32.getContactorsInRunStateConfiguration() ) {
+        //Go to error state and Log error to serial
+        printFormat("sbsbsbs","\n\rK1=",mSTM32.getK1(),"\n\rK2=",mSTM32.getK2(),"\n\rK3=",mSTM32.getK3(),"\n\r");
+
+//        mState = RunState_ERROR;
+        usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ',Unexpected Contactor change reported during RunState_RUN.'");
+      }
+#endif
     }
   }
 }
@@ -401,12 +477,12 @@ void TumanakoInverter::stateMachineDo(void) {
     switch (motorParamError) {
     case 1:
       mState = RunState_ERROR;
-      usartWriteChars("\nERROR - 'testVariousMotorParam OVERHEAT'");
+      usartWriteChars("\n\n\r  ERROR - 'testVariousMotorParam OVERHEAT'");
       break;
 
     case 2:
       mState = RunState_ERROR;
-      usartWriteChars("\nERROR - 'testVariousMotorParam OVERVOLTAGE'");
+      usartWriteChars("\n\n\r  ERROR - 'testVariousMotorParam OVERVOLTAGE'");
       break;
 
     case 3:
@@ -416,7 +492,7 @@ void TumanakoInverter::stateMachineDo(void) {
 
     default:
       mState = RunState_ERROR;
-      usartWriteChars("\nERROR - 'testVariousMotorParam UNKNOWN!!?'");
+      usartWriteChars("\n\n\r  ERROR - 'testVariousMotorParam UNKNOWN!!?'");
       break;
     }
   }
@@ -425,9 +501,14 @@ void TumanakoInverter::stateMachineDo(void) {
   case RunState_IDLE:
 
 #ifdef TUMANAKO_TEST
+    
+#ifdef TUMANAKO_PRECHARGE_TEST
     if (doPrecharge() != PreCharge_OK) {
+#else
+    if (false) {  //dont test precharge
+#endif
       mState = RunState_ERROR;
-      usartWriteChars("\nERROR - 'Precharge failed.'");
+      usartWriteChars("\n\n\r  ERROR - 'Precharge failed.'");
     } else {
       usartWriteChars("\r\nTEST - IDLE State");
       mSTM32.motorInit(); //Do the init state
@@ -435,7 +516,7 @@ void TumanakoInverter::stateMachineDo(void) {
       mSTM32.wait(500);
     }
     return;
-#endif
+#else
 
     //power on, but nothing happening (waiting for ignition to be pushed)
     if (mSTM32.getIGN() == true) {
@@ -447,7 +528,7 @@ void TumanakoInverter::stateMachineDo(void) {
       if (doPrecharge() != PreCharge_OK) {
         //Precharge failed
         mState = RunState_ERROR;
-        usartWriteChars("\nERROR - 'Precharge failed.'");
+        usartWriteChars("\n\n\r  ERROR - 'Precharge failed.'");
       } else {
         //Precharge Successful, continue with motor startup
         mSTM32.motorInit(); //Do the init state
@@ -461,6 +542,8 @@ void TumanakoInverter::stateMachineDo(void) {
       }
     }
     break;
+#endif
+
 
   case RunState_READY:
 #ifdef TUMANAKO_TEST
@@ -469,7 +552,7 @@ void TumanakoInverter::stateMachineDo(void) {
     mState=RunState_RUN;
     mSTM32.wait(500);
     return;
-#endif
+#else
 
     //Precharge begins (and contactors engaged! Undervoltage check confirms this)
 
@@ -484,21 +567,24 @@ void TumanakoInverter::stateMachineDo(void) {
 
     if ((mSTM32.getStart()==true) && (mOldStart == true)) {
       //Check for start fault conditions
+
+#ifndef TUMANAKO_SHIRE  //Shire Van is always in FWD
       if (!mSTM32.getNET()) {
         mState = RunState_ERROR;
-        usartWriteChars("\nERROR - 'Must be in netural to start'");
+        usartWriteChars("\n\n\r  ERROR - 'Must be in netural to start'");
         break;
       }
-
+#endif
+      
       if (motorParamError == 3) { //UNDERVOLTAGE - TODO enum!!!
         mState = RunState_ERROR;
-        usartWriteChars("\nERROR - 'testVariousMotorParam UNDERVOLTAGE'");
+        usartWriteChars("\n\n\r  ERROR - 'testVariousMotorParam UNDERVOLTAGE'");
         break;
       }
 
-      if (mAcceleratorRef > ZERO_THROTTLE_TORQUE) { //TORQUE_MIN+100) { //throttle must be zero (i.e. TORQUE_MIN) when start button pushed
+      if (mAcceleratorRef > ZERO_THROTTLE_TORQUE) { //throttle must not be engaged when start button pushed
         mState=RunState_ERROR;
-        usartWriteChars("\nERROR - 'throttle must be zero when start button pushed'.");
+        usartWriteChars("\n\n\r  ERROR - 'throttle must be zero when start button pushed'.");
         break;
       }
 
@@ -514,11 +600,13 @@ void TumanakoInverter::stateMachineDo(void) {
 
     mOldStart = mSTM32.getStart();
     break;
+#endif
+
 
   case RunState_RUN:
 #ifdef TUMANAKO_TEST
     return;
-#endif
+#else
     mSTM32.motorTestForSpeedError();
 
     //If IGN off, stop the motor
@@ -528,7 +616,21 @@ void TumanakoInverter::stateMachineDo(void) {
       mSTM32.setRunLED(false);
     }
     mOldIGN = mSTM32.getIGN();
+    
+    //Stall detect logic
+    if ((mSTM32.getTorque() > 400) && (mMotorRPM == 0)) {
+      mMotorStallError++;
+      if (mMotorStallError >= 6000) {
+        if (mState != RunState_ERROR) usartWriteChars("\n\n\r  ERROR - 'MOTOR_STALL! Check vehicle.'");
+        mState = RunState_ERROR;
+        mAcceleratorRef = 0;
+      }
+    } else {
+      mMotorStallError=0;
+    }   
+    
     break;
+#endif
 
   case RunState_ERROR:
     mSTM32.shutdownPower();  //TODO - need to explicitly disengaged contactors
@@ -539,7 +641,7 @@ void TumanakoInverter::stateMachineDo(void) {
 
   default:
     //Error - should not get here!
-    usartWriteChars("\nERROR - 'Unknown State!!! Going to Error State now.'");
+    usartWriteChars("\n\n\r  ERROR - 'Unknown State!!! Going to Error State now.'");
     mState=RunState_ERROR;
     break;
   }
@@ -553,7 +655,8 @@ void TumanakoInverter::dashboard()
 
   //Only output serial port data once every 5000 times
   if (count == 5000) {
-    signed short phaseC = getPhaseC(mSTM32.getPhase1(), mSTM32.getPhase2());
+    //signed short phaseC = getPhaseC(mSTM32.getPhase1(), mSTM32.getPhase2());
+    signed short phaseC = mSTM32.getPhase3();
     float current = TK_ABS(mSTM32.getPhase1()) + TK_ABS(mSTM32.getPhase2()) + TK_ABS(phaseC);
     if (mState != RunState_ERROR) {
       usartWriteDisclaimer();
@@ -570,7 +673,7 @@ void TumanakoInverter::dashboard()
       printFormat("sIs","   Phase 2 (A): ",mSTM32.getPhase2(), "\r\n");
       printFormat("sIs"," PhAOffset (A): ",mSTM32.getPhaseAOffset(), " ");
       printFormat("sIs"," PhBOffset (A): ",mSTM32.getPhaseBOffset(), "\r\n");
-      printFormat("sIs","    phaseC (A): ",phaseC, " ");
+      printFormat("sIs","    phase3 (A): ",phaseC, " ");
       printFormat("sfs","     Total (A): ",current, "\r\n");
       printFormat("sIs","RotorTimeConst: ",mSTM32.getRotorTimeConstant(), " ");
       printFormat("sIs","      SlipFreq: ",mSTM32.getSlipFreq(), "\r\n");

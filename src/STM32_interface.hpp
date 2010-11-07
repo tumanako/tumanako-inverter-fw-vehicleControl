@@ -129,6 +129,17 @@ public:
   void setK2(bool status);
   void setK3(bool status);
 
+  /**
+  * Returns true if the contactors are safely engaged (according to digital feedback)
+  */
+  bool getContactorsInRunStateConfiguration()
+  {
+    if ((getK1() == false) && (getK2() == true) && (getK3() == true))
+      return true;
+    else
+      return false;
+  }
+  
   //Wait specified number of milliseconds (ms)
   void wait(unsigned short time);
 
