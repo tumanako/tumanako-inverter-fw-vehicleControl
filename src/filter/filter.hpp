@@ -18,9 +18,8 @@
 //   along with TumanakoVC.  If not, see <http://www.gnu.org/licenses/>.
 //
 // DESCRIPTION:
-//   This file provides standalone functions for implementing Clarke and Park
-//   transforms. A highlevel implementation suitable for initial use & testing,
-//   but may require subsequent optimisiation for the final hardware.
+//   Filters digital data by storing historical data in a buffer. Implements
+//   a simple only ON if all ON type logic. 
 //
 // HISTORY:
 //   Philip Court 15/Nov/2010 - First Cut
