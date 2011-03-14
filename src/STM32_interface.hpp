@@ -22,29 +22,52 @@
  * File Name          : STM32_interface.h
  * Author             : Philip Court
  * Date First Issued  : 11/Aug/2009
- * Description        : STM32 lib Main program interface (wraps all ST licensed
- *                      code).  This is actually a generic wrapper that can wrap
- *                      any motor control lib.  TODO change file name.
+ * Description        : Motor Control main program interface.  This is a generic 
+*                       wrapper that can wrap any motor control lib.
+*                       TODO change file name.
  *******************************************************************************
  * History:
  * 11/Aug/09 v1.0 - PCC: First Cut
  *  7/Dec/09 v1.1 - PCC: Prepared for first release.
+ * 15/Mar/11 v1.2 - PCC: First release of Sine Motor Control combined with VC
  ******************************************************************************/
 
 /* Define to prevent recursive inclusion -------------------------------------*/
-#ifndef __STM32_MAIN_H
-#define __STM32_MAIN_H
+#ifndef STM32_INTERFACE_HPP_INCLUDED
+#define STM32_INTERFACE_HPP_INCLUDED
+
+#define USE_FILTER
 
 /* Includes ------------------------------------------------------------------*/
+#include "filter/filter.hpp"  //temp for now
+
+extern "C"
+{
+  #include <libopenstm32/common.h>  //u8 etc
+}
+
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
 typedef enum {Input_IGN, Input_START, Input_CRAWL, Input_FWD, Input_REV} Input_T;
 
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */
+//Generic timer class with 1ms ticks
+class MyTimer {
+  public:
+  MyTimer();
+  void reset();
+  u32 getElapsed(); 
+
+  private:
+    u32 myTimeBase_;  //used to record start point of TimeBase_
+};
 
 class STM32Interface {
 public:
+  STM32Interface();
+
+  void sysTickInit();
 
   unsigned long getMillisecTimer();
   void resetMillisecTimer();
@@ -55,7 +78,7 @@ public:
   //returns the digital bus voltage A/D conversion without SI unit scaling
   unsigned short getRawBusVolt();
 
-//Provide access to various motor control variables
+  //Provide access to various motor control variables
   unsigned short getPhaseAOffset();
   unsigned short getPhaseBOffset();
   short getPhase1();
@@ -69,17 +92,19 @@ public:
 
   /**IO from the vehcile loom*/
 
-  //Returns the selected Input with debounce logic applied (implemented in open source without function pointers)
-  bool getDebouncedInput(Input_T input);
-
   //Physical INPUT
   bool getIGN(void);  //Ignition switch on or off?
-  bool getStart(void);  //Start button engaged?
+  bool getRAWStart(void);  //Start button engaged (raw signal)?
+  bool getStart(void);  //Start button engaged (with software filtering)?
   bool getCrawl(void);  //Crawl switch on or off?
   bool getFWD(void);   //Forward selected?
   bool getREV(void);  //Reverse selected?
 
-  bool getNET(void);  //Netural (neither FWD or REV selected)?
+  bool getNET(void)  //Netural (neither FWD or REV selected)?
+  {
+    return (!getREV() && !getFWD());
+  }
+
   bool getContactorsEngaged(void);  //Are the contactors engaged (Physical test)?
   bool getEmergencyStop(void);  //Has the emergency stop been activated?
 
@@ -87,10 +112,10 @@ public:
   void setErrorLED(bool value); //Show red error light
   void setRunLED(bool value); //Show green run light
 
-  /** Reads the value of the specified ADC channel */
+  // Reads the value of the specified ADC channel
   unsigned short readADC(unsigned char channel);  //:TODO: needs to be encapsulated into +ve torque and -ve torque etc
 
-  /** Used to init the Motor Control libraries*/
+  /** Used to initialise the Motor Control libraries*/
   int init(void);
 
   // Getter/Setters for the current torque setting (Iq)
@@ -140,27 +165,32 @@ public:
       return false;
   }
   
-  //Wait specified number of milliseconds (ms)
+  //Blocking wait. Waits specified number of milliseconds (ms)
   void wait(unsigned short time);
 
   //Sanity checks (TODO paramatise this)
   void checkPowerStageLimits();
 
-  //Prep motor for start (TODO document details)
+  //Prep motor for start
   void motorInit();
 
-  //Start motor (TODO document details)
+  //Start motor
   void motorStart();
 
-  //test to be executed in the main loop when motor is running (TODO document details)
+  //test to be executed in the main loop when motor is running
   void motorTestForSpeedError();
-
-  //test to check for motor fault (TODO document this)
-  bool motorDoesFaultStillExist();
 
   //Shutdown motor control and power stage
   void shutdownPower();
 
+  private:
+  //TODO tidy these methods away
+  void adc_setup(void);
+  u8 adcchfromport(int command_port, int command_bit);
+
+#ifdef USE_FILTER
+    filter myFilter_;
+#endif
+
 };
-#endif /* __STM32_MAIN_H */
-/*******************************************************END OF FILE************/
+#endif // STM32_INTERFACE_HPP_INCLUDED

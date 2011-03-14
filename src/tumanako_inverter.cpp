@@ -23,6 +23,7 @@
 //
 // HISTORY:
 //   Philip Court 5/Aug/2009 - First Cut
+//   Philip Court 15/Mar/2011 - Updated during implementation of STM32_sine_interface.cpp
 //------------------------------------------------------------------------------
 
 
@@ -32,6 +33,10 @@
 
 #include "tumanako_inverter.hpp"
 #include "tumanako_serial.hpp"
+
+extern "C" {
+  #include <stdio.h>
+}
 
 /*----------------------------- Private typedef ------------------------------*/
 /*----------------------------- Private define -------------------------------*/
@@ -117,11 +122,11 @@
 TumanakoInverter::TumanakoInverter():
     mLoopTime(0),
     mMotorRPM(0),
+    mFlux(DEFAULT_FLUX),
+    mAcceleratorRef(0),
     mState(RunState_IDLE),
     mOldIGN(true),
     mOldStart(false),
-    mFlux(DEFAULT_FLUX),
-    mAcceleratorRef(0),
     mPrevAccRef(0),
     mFlashRunLED(false),
     mAcceleratorMIN(10),  //TODO - To be configured via setup software
@@ -140,7 +145,7 @@ Direction_T TumanakoInverter::getDirection(void) {
     //TODO: Flault001 - FWD and REV inputs inconsistant (e.g. both FWD and REV selected)
     //mState=RunState_ERROR;
     mSTM32.setErrorLED(true);
-    usartWriteChars("\nWARNING - 'FWD and REV inputs inconsistant'.");
+    usartWriteChars("\nWARNING - 'FWD and REV inputs inconsistant'.\r\n");
     return(NET);  //Netural
   }
 }
@@ -175,12 +180,12 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   }
   
-  unsigned long startTime = mSTM32.getMillisecTimer();
+  MyTimer prechargeTimer;
   
   //TODO these two while loops could be combined (must retain 1 sec min precharge time though as a design safety feature - ie code design guarantiees 1 sec precharge even if bugs or feedback errors exist)
     
   //wait "at least" 1 sec and check that voltage is actually rising (or target Voltage reached)
-  while ((mSTM32.getMillisecTimer() - startTime) < TUMANAKO_MIN_PRECHARGE_TIME) {//MIN_PRECHARGE_TIME
+  while (prechargeTimer.getElapsed() < TUMANAKO_MIN_PRECHARGE_TIME) {//MIN_PRECHARGE_TIME
     busVoltage = mSTM32.getRawScaledBusVolt();
     printFormat("sIsI","\r\n PreCharge Phase 1   - BusVolts (V): ",busVoltage,", (digital): ",mSTM32.getRawBusVolt());
     if ((busVoltage > previousBusVoltage) || (busVoltage> TUMANAKO_PRECHARGE_V)) {
@@ -199,7 +204,7 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     busVoltage = mSTM32.getRawScaledBusVolt();
     printFormat("sIsI","\r\n   PreCharge Phase 2 - BusVolts (V): ",busVoltage,", (digital): ",mSTM32.getRawBusVolt());
     
-    if ((mSTM32.getMillisecTimer() - startTime) < TUMANAKO_MAX_PRECHARGE_TIME) {  //MAX_PRECHARGE_TIME
+    if (prechargeTimer.getElapsed() < TUMANAKO_MAX_PRECHARGE_TIME) {  //MAX_PRECHARGE_TIME
       mSTM32.wait(100); //wait and then try again
     } else { //Error: MAX_PRECHARGE_TIME has elapsed and precharge not finished!
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
@@ -223,7 +228,7 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   } 
   
-  printFormat("sI","\r\nPrecharge COMPLETE, elapsed time: ",mSTM32.getMillisecTimer() - startTime);
+  printFormat("sI","\r\nPrecharge COMPLETE, elapsed time: ",prechargeTimer.getElapsed());
 
   return(PreCharge_OK); //return precharge OK.
 }
@@ -232,10 +237,9 @@ PreCharge_T TumanakoInverter::doPrecharge() {
 //flash the LEDs
 void TumanakoInverter::flash() {
   static bool led_on = false;
-  static unsigned long last_flash_ms=0;
 
   //flash every 250ms
-  if (mSTM32.getMillisecTimer() > (last_flash_ms+125)) {
+  if (mLastFlashTimer.getElapsed() > 125) {
     if (led_on) {
       if (mFlashRunLED) mSTM32.setRunLED(true);
       led_on=false;
@@ -243,7 +247,7 @@ void TumanakoInverter::flash() {
       if (mFlashRunLED) mSTM32.setRunLED(false);
       led_on=true;
     }
-    last_flash_ms=mSTM32.getMillisecTimer();
+    mLastFlashTimer.reset();
   }
 }
 
@@ -278,44 +282,39 @@ short convertToDegrees(short digitalAngle) {
 //Main application loop
 void TumanakoInverter::doIt(void) {
   //signed long power = 0;
-  unsigned long end_time_ms, start_time_ms;
   //bool oldCrawl = false;
     
 #ifndef TUMANAKO_SHIRE
   Direction_T direction = NET;
 #endif
 
-#ifdef TUMANAKO_TEST
-  unsigned long first_time_ms = 0;
-#endif
-  
+  mSTM32.setRunLED(true);
+  mSTM32.setErrorLED(true);
   //clear lights
-  mSTM32.setRunLED(false);
-  mSTM32.setErrorLED(false);
+  //mSTM32.setRunLED(false);
+  //mSTM32.setErrorLED(false);
   
   //crude delay to allow powerstage logic to initalise.
   //{otherwise KiwiAC interupt driven sanity checks kick in and 
   //complain that powerstage is sick)
   delay(1000); //roughly 1 sec delay 
+  mSTM32.setRunLED(false);
+  mSTM32.setErrorLED(false);
     
   mSTM32.init();
   usartInit();
-  mSTM32.resetMillisecTimer();
 
-#ifdef TUMANAKO_TEST
-  first_time_ms = mSTM32.getMillisecTimer();
-#endif
+  //Timers must be created after STM32 init (TODO what about lastFlashTimer!?)
+  MyTimer loopTimer;
 
-    
   while (1) { //Main loop
-    end_time_ms = mSTM32.getMillisecTimer();
-    mLoopTime = end_time_ms-start_time_ms;
-    start_time_ms = mSTM32.getMillisecTimer();
+    mLoopTime = loopTimer.getElapsed();
+    loopTimer.reset();
 
-#ifdef TUMANAKO_TEST
-    if (end_time_ms - first_time_ms > 30000) {
+#ifdef TUMANAKO_RUN_TIMER
+    if (mRunTimer.getElapsed() > TUMANAKO_MAX_RUNTIME) { //if runtime > 30 sec
       mSTM32.shutdownPower();
-      usartWriteChars("\r\nHALT TEST");
+      usartWriteChars("\r\nHALT - TUMANAKO_MAX_RUNTIME exceeded.\r\n");
       while (1) {}; //halt
     }
 #endif
@@ -336,9 +335,7 @@ void TumanakoInverter::doIt(void) {
         mAcceleratorRef = 0;
       }
     } else mCountMaxThrottleError = 0; //reset error count
-#pragma diag_suppress=Pe186 //PCC - Suppress Warning[Pe186]: pointless comparison of unsigned integer with zero
     if (mRawAcceleratorRef < THROTTLE_POT_MIN) {
-#pragma diag_default=Pe186 //PCC
       mCountMinThrottleError++;
       if (mCountMinThrottleError > THROTTLE_ERROR_COUNT) {
         if (mState != RunState_ERROR) usartWriteChars("\n\n\r  ERROR - 'POT_MIN exceeded! Check Throttle wires.'");
@@ -369,17 +366,11 @@ void TumanakoInverter::doIt(void) {
     }
 #endif
     
-    //temp hack for experimental Rotor Time Constant tuning
-    //if (mSTM32.getCrawl() == true && oldCrawl == false) {
-      //mSTM32.setRotorTimeConstant(mSTM32.getRotorTimeConstant()-1);
-    //}
-
     //Detect crawl mode and reduce torque appropriately (temp disabled)
     if (false) { //mSTM32.getCrawl() == true)
       mAcceleratorRef/=2;
       if ((mMotorRPM > 300)) mAcceleratorRef=0;  //no torque if RPM above limit
     }
-    //oldCrawl = mSTM32.getCrawl();
 
 #ifndef TUMANAKO_SHIRE //(Shire Van is always in FWD, so dont do this)
     //TODO add speed limit to this logic
@@ -415,7 +406,7 @@ void TumanakoInverter::doIt(void) {
     mAcceleratorRef = TUMANAKO_TEST_TORQUE_REF;
     #endif
     
-    //Wrong direction detect (current motor control can flip into reverse direction after a stall, hence the need for this code)
+    //Wrong direction detect (current IFOC motor control can flip into reverse direction after a stall, hence the need for this code)
     if (((mSTM32.getTorque() >= 0) && (mMotorRPM < 0)) ||
         ((mSTM32.getTorque() < 0) && (mMotorRPM > 0)) ) {
       mMotorDirectionError++;
@@ -445,6 +436,7 @@ void TumanakoInverter::doIt(void) {
     if (mState == RunState_RUN) {
       //Only run these tests if motor on!
       
+      //TODO why check this twice!? (see checkVariousMotorParameters)
       //power = mSTM32.getTorque() * mSTM32.getRPM();
       if (!mSTM32.busVoltageOK()) { // || (power > TUMANAKO_MAX_REGEN_POWER))
         //Go to error state and Log error to serial
@@ -454,6 +446,7 @@ void TumanakoInverter::doIt(void) {
       }
 
 #ifndef TUMANAKO_TEST  //can't test this easily on the test rig currently
+#ifdef TUMANAKO_PRECHARGE_TEST  //remove precharge values if this is not defined
       //Check contactor feedback
       //if (!((mSTM32.getK1() == false) && (mSTM32.getK2() == true) && (mSTM32.getK3() == true))) {
       if ( ! mSTM32.getContactorsInRunStateConfiguration() ) {
@@ -463,6 +456,7 @@ void TumanakoInverter::doIt(void) {
 //        mState = RunState_ERROR;
         usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ',Unexpected Contactor change reported during RunState_RUN.'");
       }
+#endif
 #endif
     }
   }
@@ -524,8 +518,12 @@ void TumanakoInverter::stateMachineDo(void) {
       mSTM32.setRunLED(true);
       mSTM32.setErrorLED(true);
 
+#ifdef TUMANAKO_PRECHARGE_TEST
       //do precharge (only do it once though!  State machine needed here)
       if (doPrecharge() != PreCharge_OK) {
+#else
+      if (false) {  //dont test precharge
+#endif
         //Precharge failed
         mState = RunState_ERROR;
         usartWriteChars("\n\n\r  ERROR - 'Precharge failed.'");
@@ -678,7 +676,8 @@ void TumanakoInverter::dashboard()
       printFormat("sIs","RotorTimeConst: ",mSTM32.getRotorTimeConstant(), " ");
       printFormat("sIs","      SlipFreq: ",mSTM32.getSlipFreq(), "\r\n");
       printFormat("sIs","     FluxAngle: ",convertToDegrees(mSTM32.getFluxAngle()), " ");
-      printFormat("sI" ," ElectricAngle: ",convertToDegrees(mSTM32.getElectricalAngle()));
+      printFormat("sIs" ," RunTime (sec): ",mRunTimer.getElapsed(), "\r\n");
+//      printFormat("sI" ," ElectricAngle: ",convertToDegrees(mSTM32.getElectricalAngle()));
   
       count=0;
     }

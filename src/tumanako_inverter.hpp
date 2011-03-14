@@ -21,8 +21,8 @@
 #ifndef TUMANAKO_INVERTER_HPP
 #define TUMANAKO_INVERTER_HPP
 
-#include <Tumanako/tumanako_global.hpp>
-#include <Tumanako/STM32_interface.hpp>
+#include "tumanako_global.hpp"
+#include "STM32_interface.hpp"
 
 /*----------------------------- Private typedef ------------------------------*/
 typedef enum {FWD, REV, NET} Direction_T;
@@ -35,57 +35,42 @@ typedef enum {PreCharge_OK, PreCharge_PHASE1_ERROR, PreCharge_PHASE2_ERROR, PreC
 #define TK_ON true
 #define TK_OFF false
 
-//TODO generic debounce logic (expose digital IO via a ENUM index)
-
 class TumanakoInverter {
 
  public:
 //Constructor
   TumanakoInverter();
 
-// Get status of the contactors (requires ignition on first)
-  bool getContactorsEngaged(void);
-
-// Get get status of the emergency stop (physical shutdown logic also
-// implemented via an interupt)
-  bool getEmergencyStop(void);
-
-// Get status of the driving direction
-// TRUE = forwards
-// FALSE = backwards
-// should have double logic (i.e. two bits to check?)  If not consistant shut
-// down or stay in fwd...
-  Direction_T getDirection(void);
-
-  void checkVehcileControlInputs();
-  void doIt(void);
-  void stateMachineDo(void);
-  
-  void dashboard();
+  void doIt(void);  //manage main loop and vechile state machine
 
  private:
-
+  Direction_T getDirection(void); //Get status of the driving direction
+  void checkVehcileControlInputs();
+  void stateMachineDo(void);
+  void dashboard();
   PreCharge_T doPrecharge(void);
   void flash();  //Flash a LED
   void delay(int multiple); //delay (multiple times)
 
   unsigned long mLoopTime; 
+  MyTimer mRunTimer; 
   signed short mMotorRPM;
   unsigned short mFlux;  //Rotor flux set point
   short mAcceleratorRef;  //actually this represents +ve and -ve torque
   unsigned short mRawAcceleratorRef;  //from ADC
+  STM32Interface mSTM32;
+  RunState_T mState;
+  bool mOldIGN; //used for debounce TODO update to use filter
+  bool mOldStart; //used for debounce TODO update to use filter
+  short mPrevAccRef; //used to detect violent direction change
+  bool mFlashRunLED;  //TODO encapsulate flash logic
+  short mAcceleratorMIN;  //Min expected value
+  short mAcceleratorMAX;  //Max expected value
   short mCountMinThrottleError;
   short mCountMaxThrottleError;
   unsigned short mMotorStallError;
   unsigned short mMotorDirectionError;
-  short mPrevAccRef; //used to detect violent direction change
-  STM32Interface mSTM32;
-  RunState_T mState;
-  bool mFlashRunLED;  //TODO encapsulate flash logic
-  bool mOldIGN; //used for debounce
-  bool mOldStart; //used for debounce
-  short mAcceleratorMIN;  //Min expected value
-  short mAcceleratorMAX;  //Max expected value
+  MyTimer mLastFlashTimer;
 };
 
 #endif // TUMANAKO_INVERTER_HPP

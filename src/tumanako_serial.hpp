@@ -26,6 +26,7 @@ void usartWrite(long a, long b, long c, long d, long e);
 
 //write null terminated sequence of chars
 void usartWriteChars(char * chars);
+void usartWriteChars(const char * chars);
 
 //write variable number of parameters
 void printFormat( const char* Format, ... );

@@ -24,10 +24,10 @@
 // HISTORY:
 //   Philip Court 15/Nov/2010 - First Cut
 //------------------------------------------------------------------------------
-#include <iostream>
+#ifndef __FILTER_H
+#define __FILTER_H
 
-using namespace std;
-
+#include <stdlib.h>
 
 // Used to filter noisy digital lines.  Will only
 // return true if line has been continuously on for
@@ -39,12 +39,15 @@ public:
   filter (unsigned long size) {
     index_=0;
     size_ = size;
-    buffer_ = new bool[size];
+    buffer_ = new bool[size];  //causes issues with sbrk.c impl needing to be right!?
+    //buffer_ = (bool*)malloc(size*sizeof(bool));
 
     //initialise
     for (unsigned short i=0; i<size_; i++)
       buffer_[i] = false;
   }
+
+  //Destructor not implemented (this class does not expect to be destructed, i.e. it will be used unti lthe power is turned off!)
 
   //Store data in the filters buffer
   void store(bool data) {
@@ -76,3 +79,4 @@ private:
   unsigned short size_;
 };
 
+#endif  //__FILTER_H
