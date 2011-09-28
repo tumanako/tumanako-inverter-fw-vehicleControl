@@ -43,7 +43,7 @@
 
 extern "C"
 {
-  #include <libopenstm32/common.h>  //u8 etc
+  #include <libopencm3/cm3/common.h>  //u8 etc
 }
 
 /* Exported types ------------------------------------------------------------*/

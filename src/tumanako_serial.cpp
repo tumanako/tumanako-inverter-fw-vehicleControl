@@ -32,9 +32,9 @@
 using namespace std;
 
 extern "C"  {
-#include <libopenstm32/usart.h>
-#include <libopenstm32/gpio.h>
-#include <libopenstm32/common.h>
+#include <libopencm3/stm32/usart.h>
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/cm3/common.h>
 #include <stdio.h>
 #include <stdarg.h>  //variable args
 }

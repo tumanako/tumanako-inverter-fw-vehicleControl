@@ -40,15 +40,15 @@
 
 extern "C" {
 #include "stm32_sine.h" //interface to sine motor control
-#include <libopenstm32/rcc.h>
-#include <libopenstm32/gpio.h>
-#include <libopenstm32/usart.h>
-#include <libopenstm32/adc.h>
-#include <libopenstm32/timer.h>
-#include <libopenstm32/nvic.h>
-#include <libopenstm32/scb.h>
-#include <libopenstm32/systick.h>
-#include <libopenstm32/common.h>  //u8 etc
+#include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/usart.h>
+#include <libopencm3/stm32/adc.h>
+#include <libopencm3/stm32/timer.h>
+#include <libopencm3/stm32/nvic.h>
+#include <libopencm3/stm32/scb.h>
+#include <libopencm3/stm32/systick.h>
+#include <libopencm3/cm3/common.h>  //u8 etc
 
   //manage global timer interupt
   static volatile u32 TimeBase_;

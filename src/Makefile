@@ -29,10 +29,10 @@ TOOLCHAIN_DIR = `dirname \`which $(CC)\``/../$(PREFIX)
 #CFLAGS		= -O0 -g -Wall -Wextra -Iinclude -I. -I../../motor_control/src/sine -fno-common \
 #		  -mcpu=cortex-m3 -mthumb -I/home/pccourt/tmp/new_libopenstm32/libopenstm32/include
 CFLAGS		= -O0 -g -Wall -Wextra -Iinclude -I. -I../../motor_control/src/sine -fno-common \
-		 -ffunction-sections -fdata-sections -fno-builtin -fno-rtti -fno-exceptions -fno-unwind-tables -mcpu=cortex-m3 -mthumb -I/home/pccourt/tmp/new_libopenstm32/libopenstm32/include
+		 -ffunction-sections -fdata-sections -fno-builtin -fno-rtti -fno-exceptions -fno-unwind-tables -mcpu=cortex-m3 -mthumb
 LDSCRIPT	= $(BINARY).ld
 LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
-      -Wl,--gc-sections,-Map=mapfile,--defsym,_stack=0x20005000 -L/home/pccourt/sourceforge/tumanako/trunk/inverter/fw/motor_control/src/sine
+      -Wl,--gc-sections,-Map=mapfile,--defsym,_stack=0x20005000 -L../../motor_control/src/sine
 ## LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
       -Wl,-Map=mapfile -L/home/pccourt/sourceforge/tumanako/trunk/inverter/fw/motor_control/src/sine
 ## LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
@@ -66,7 +66,7 @@ images: $(BINARY)
 
 $(BINARY): $(OBJS) $(LDSCRIPT)
 	@printf "  LD      $(subst $(shell pwd)/,,$(@))\n"
-	$(LD) $(LDFLAGS) -o $(BINARY) $(OBJS) -lstm32sine -lopenstm32 -lc -lnosys
+	$(LD) $(LDFLAGS) -o $(BINARY) $(OBJS) -lstm32sine -lopencm3_stm32 -lc -lnosys
 
 %.o: %.cpp Makefile
 	@printf "  CC      $(subst $(shell pwd)/,,$(@))\n"
