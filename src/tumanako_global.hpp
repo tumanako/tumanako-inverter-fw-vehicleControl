@@ -20,7 +20,7 @@
 #ifndef TUMANAKO_GLOBAL_HPP
 #define TUMANAKO_GLOBAL_HPP
 
-#define TUMANKAO_VERSION "0.94.3 open" //'open' denotes a version with 100% open source code
+#define TUMANKAO_VERSION "0.95.0 open" //'open' denotes a version with 100% open source code
 
 #define TUMANAKO_PRECHARGE_V 290  //voltage precharge is required to reach before main contactors engage (ShireVan specific)
 #define TUMANAKO_MAX_BUX_V 400  //Max bus voltage we ever expect to see
@@ -31,6 +31,8 @@
 //#define TUMANAKO_MAX_RUNTIME 7*24*60*60*1000 //7 day max runtime
 #define TUMANAKO_MAX_RUNTIME 30*1000 //30 sec max runtime
 #define TUMANAKO_USE_FILTER //Turns the software filters for digital signals on
+#define TUMANAKO_HALF_POWER_MOTOR_TEMP 115 //115 deg C - Half system power
+#define TUMANAKO_MAX_MOTOR_TEMP 125 //125 deg C - Shutdown system
 
 //Which Motor parameters - comment all of these for the test rig (or uncomment the appropriate alternative application)
 //#define TUMANAKO_WS28  //uncomment this to build for the WS28 motor in the Saker
@@ -40,7 +42,7 @@
 //#define TUMANAKO_STANDARD   //uncomment this to build standard vehicle control
 //#define TUMANAKO_SHIRE   //uncomment this to build for the Shire Van (fixed in FWD, runs at 1000 RPM during idle to run pumps etc) 
 
-//Which powerstage - uncomment for SKAI
+//Which powerstage - uncomment for SKAI (comment out for SKiiP)
 //#define TUMANAKO_SKAI
 
 #define TUMANAKO_BRK_HIGH //Shire Van and board 002) also 001 by the looks!?

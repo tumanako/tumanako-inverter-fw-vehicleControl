@@ -94,8 +94,8 @@ public:
 
   //Physical INPUT
   bool getIGN(void);  //Ignition switch on or off?
-  bool getRAWStart(void);  //Start button engaged (raw signal)?
-  bool getStart(void);  //Start button engaged (with software filtering)?
+  bool getRAWStart(void);  //Raw one off read of Start button digital line (is it engaged or noise though?)
+  bool getStart(void);  //Start button engaged? (same as above, except through a software noise filter)
   bool getCrawl(void);  //Crawl switch on or off?
   bool getFWD(void);   //Forward selected?
   bool getREV(void);  //Reverse selected?
@@ -122,9 +122,9 @@ public:
   signed short getTorque(void); //read current value of Torque
   void setTorque(signed short); //Set the target Torque value (used in torque control algorithm)
 
-  // Getter/Setters for the current torque setting (Iq)
-  signed short getSpeed(void); //read current value of Torque
-  void setSpeed(signed short); //Set the target Torque value (used in torque control algorithm)
+  // Getter/Setters for the current speed
+  signed short getSpeed(void); //read current value of Speed
+  void setSpeed(signed short); //Set the target Speed value (not implemented yet)
 
   // Getter/Setters for the current flux setting (Id)
   signed short getFlux(void); //read current value of rotor Flux
@@ -140,16 +140,19 @@ public:
   //Get current bus voltage (via a historical 16 reading average)
   short busVoltage(void);
 
-  //Get current temperature from power stage
+  //Get current temperature from power stage (via a running average)
   short powerStageTemperature(void);
+  
+  //Get current temperature from motor (returns most recent reading from previous instantanious value calculated once every secound.  TODO compute running average).
+  short motorTemperature(void);
 
-  //returns 0 if no issues
+  //returns 0 if no issues (1 = Powerstage overheat, 2 = Bus over voltage, 3 = Bus undervoltage. TODO needs enum)
   short testVariousMotorParam(void);
 
   //Contactor controls (See diagram here: http://liionbms.com/php/precharge.php)
-  bool getK1();
-  bool getK2();
-  bool getK3();
+  bool getK1();  //reads K1 physical contactor feedback
+  bool getK2();  //reads K2 physical contactor feedback
+  bool getK3();  //reads K3 physical contactor feedback
   void setK1(bool status);
   void setK2(bool status);
   void setK3(bool status);
@@ -168,22 +171,25 @@ public:
   //Blocking wait. Waits specified number of milliseconds (ms)
   void wait(unsigned short time);
 
-  //Sanity checks (TODO paramatise this)
+  //Sanity checks (Same as testVariousMotorParam, except it takes action internally without interaction with vehicle control layer. Updates motor control internal state machine if fault detected)
   void checkPowerStageLimits();
 
-  //Prep motor for start
+  //Prep motor for start (init PID loop, encoder buffer, IFOC algorithm variables, Enable PWM outputs and calibrate 3 phase current sensors)
   void motorInit();
 
-  //Start motor
+  //Start motor (startup checks and switch motor control state machine to GO!)
   void motorStart();
 
-  //test to be executed in the main loop when motor is running
+  //test to be executed in the main loop when motor is running (checks against motor hardware limits - Max RPM)
   void motorTestForSpeedError();
 
-  //Shutdown motor control and power stage
+  //Shutdown motor control and power stage (disable PWM, disconnect contactors, zero IFOC outputs and shutdown motor controller state machine)
   void shutdownPower();
 
   private:
+  //Prepare Timer 3 to measure motor temp (KiwiAC STM32MCU board specific - converts KTY84 resistance to freq)
+  void motorTempSensorInit();
+
   //TODO tidy these methods away
   void adc_setup(void);
   u8 adcchfromport(int command_port, int command_bit);

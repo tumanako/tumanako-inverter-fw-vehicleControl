@@ -471,6 +471,12 @@ short STM32Interface::powerStageTemperature(void) {
   return 1024;
 }
 
+short STM32Interface::motorTemperature(void) {
+  //TODO
+  return 1024;
+}
+
+
 //returns 0 if no issues
 short STM32Interface::testVariousMotorParam(void) {
   unsigned short busVolt = getRawScaledBusVolt();
