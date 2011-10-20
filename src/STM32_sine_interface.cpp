@@ -40,6 +40,7 @@
 
 extern "C" {
 #include "stm32_sine.h" //interface to sine motor control
+
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/usart.h>
@@ -50,17 +51,83 @@ extern "C" {
 #include <libopencm3/stm32/systick.h>
 #include <libopencm3/cm3/common.h>  //u8 etc
 
+#define TK_MOTOR_TEMP_SAMPLING_TIME 1999 //(1 sec with 500usec updates)
+u16 motorTemp_;  //global to module
+
+s16 calcMotorTemperature(void);
+
+  //variables for Motor Temperature calculation
+  static bool b_MT_Is_First_Measurement;
+  static u16 hMT_Previous_count;
+  static volatile u32 sysTick_;
+
   //manage global timer interupt
   static volatile u32 TimeBase_;
+
   void sys_tick_handler() {
     //See also sysTickInit()
 
     //With a timer configured for 500usec updates this will cycle a u32 once ~ every 24 days
     //(hence using a single u32 for mulitple timers is fine)
     TimeBase_++;
+    sysTick_++;
+
+    //Call calcMotorTemperature once every second (1/2 sec?)
+    if (sysTick_ >= TK_MOTOR_TEMP_SAMPLING_TIME) {
+      sysTick_=0;
+      motorTemp_ = calcMotorTemperature();
+    }
   }
 
-}
+
+  //PCC
+  //KTY84 linear approximation (degC=A.freq+B) - These constants are x100 to retain accuracy + integer maths performance
+  #define TUMANAKO_MT_A -87
+  #define TUMANAKO_MT_B 41758  // = 41708 + 50 (for rounding to nearest 1 deg C)
+
+  /*******************************************************************************
+  * Function Name  : calcMotorTemperature (PCC)
+  * Description    : Compute return latest motor temp. This method is called once
+  *                  per second
+  * Input          : None
+  * Output         : s16
+  * Return         : Return motor temp in 1 deg C resolution.
+  *******************************************************************************/
+  s16 calcMotorTemperature(void)
+  {   
+    u16 freq_count;  //count pulses from sensor since last read
+    u16 hMT_Current_count;
+    s16 degC = 0;
+   
+    // TIM3 is Motor Temp timer counter (it cycles to MAX_UINT)
+    hMT_Current_count = TIM3_CNT;
+    
+    if (!b_MT_Is_First_Measurement)
+    {
+      freq_count = (hMT_Current_count - hMT_Previous_count -1 );  //Subtract extra 1 to remove LED flash triggers
+
+  // INLINE TESTING for KTY84 constants (uncomment to use)    
+  //freq_count = 410 - 65536;  //expect 60 deg C - Result PASS
+  //freq_count = 410;  //expect 60 deg C - Result PASS
+  //freq_count = 364;  //expect 100 dec C - Result PASS
+  //freq_count = 307;  //expect 150 dec C - Result 149 deg C (PASS with acceptable linear approximation error)
+  //freq_count = 446;  //expect 30 dec C - Result 29.9 deg C (PASS with acceptable linear approximation error)
+
+      //convert to temperature (degres celcius)
+      degC = ((s32)freq_count*TUMANAKO_MT_A + TUMANAKO_MT_B)/100;
+      
+    } //is first measurement, discard it
+    else
+    {
+      b_MT_Is_First_Measurement = false;
+      degC = 0;
+    }
+    
+    hMT_Previous_count = hMT_Current_count;  
+    
+    return( degC );
+  }
+}  //end extern "c"
 
 //DIGITAL INPUTS
 #define TK_IGN_PIN          GPIO7  //Triggers engagement of contactors (Ignition key on)
@@ -113,6 +180,7 @@ STM32Interface::STM32Interface()
 
 void STM32Interface::sysTickInit() {
   TimeBase_ = 0;
+  sysTick_ = 0;
 
   // 72MHz / 8 = 9,000,000 counts per second
   //systick_set_clocksource(STK_CTRL_CLKSOURCE_AHB_DIV8);
@@ -389,13 +457,57 @@ u8 STM32Interface::adcchfromport(int command_port, int command_bit) {
   return 16;
 }
 
+
+//Setup hardware to read temperature data (input as a freq on PC8)
+void motorTemperatureInit() {
+
+  //ENABLE TIM3 full remap (PC8 on chnl 3)
+  AFIO_MAPR |= AFIO_MAPR_TIM3_REMAP_FULL_REMAP;
+
+  //TIM3 clock source enable
+  RCC_APB1ENR |= RCC_APB1ENR_TIM3EN;
+
+  //Enable GPIOC clock
+  RCC_APB2ENR |= RCC_APB2ENR_IOPCEN;
+
+  //Set GPIOC Pin 8 as input floating
+  gpio_set_mode(
+      GPIOC,
+      GPIO_MODE_INPUT,
+      GPIO_CNF_INPUT_FLOAT,
+      GPIO8);
+
+  //TIM3 Prescaler = 0  i.e. No prescaling 
+  TIM3_PSC = 0x0;
+  //TIM3 Counter Mode Up;   
+  timer_set_alignment(TIM3, TIM_CR1_CMS_EDGE);
+  //TIM3 Period = 65535
+  TIM3_ARR = 65535;
+  //TIM3 clock division 1
+  timer_set_clock_division(TIM3, TIM_CR1_CKD_CK_INT);
+ 
+  //(CC1 input, IC1 mapped onto TI1) and OC1Ref is cleared when High detected on ETRF input
+  TIM3_CCMR1 |= 0x04 | 0x01;
+  TIM3_CR2 |= 0x0080;
+  TIM3_SMCR = 0x50 | 0x07; //TI1FR1 (b101) and SMS = external clock mode 1
+  TIM3_SR = ~0x0001; //Update flag
+  TIM3_DIER |= 0x0001; //IT update
+  TIM3_CNT = 0;   //Clear counter
+  TIM3_CR1 |= TIM_CR1_CEN;  //Finally, enable it!
+}
+
 /** Used to init the Motor Control libraries*/
 int STM32Interface::init(void) {
+  b_MT_Is_First_Measurement = true;  //used by calcMotorTemperature
+  hMT_Previous_count = 0;  //used by calcMotorTemperature
+
   //TODO need to consolidate all hardware setup into a single place so Tumanako modules do not conflict
   STM32_SINE_Init();  //can cause conflicts
 
   sysTickInit();
   gpioInit();
+
+  motorTemperatureInit();
 
   //analogue init
   static u8 channel_array[16] = {16,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0};
@@ -472,8 +584,7 @@ short STM32Interface::powerStageTemperature(void) {
 }
 
 short STM32Interface::motorTemperature(void) {
-  //TODO
-  return 1024;
+  return motorTemp_;
 }
 
 
