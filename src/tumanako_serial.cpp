@@ -22,6 +22,9 @@
 //   provides a few helper functions.
 //
 //------------------------------------------------------------------------------
+
+#define STM32F1  //applicable to the STM32F1 series of devices
+
 #include "tumanako_serial.hpp"
 #include "tumanako_global.hpp"
 
@@ -33,7 +36,8 @@ using namespace std;
 
 extern "C"  {
 #include <libopencm3/stm32/usart.h>
-#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/f1/gpio.h>
+#include <libopencm3/stm32/f1/rcc.h>
 #include <libopencm3/cm3/common.h>
 #include <stdio.h>
 #include <stdarg.h>  //variable args
@@ -61,7 +65,7 @@ void usartInit() {
                 GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
 
   /* Setup UART parameters. */
-  usart_set_baudrate(USART1, 115200);
+  usart_set_baudrate(USART1, 115200, rcc_ppre2_frequency);
   //usart_set_baudrate(USART1, 38400);
   usart_set_databits(USART1, 8);
   usart_set_stopbits(USART1, USART_STOPBITS_1);

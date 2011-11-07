@@ -30,6 +30,8 @@
  * 13/Mar/2011 v1.0 - PCC: Dash IO and basic sine motor control working (no contactors)
  ******************************************************************************/
 
+#define STM32F1  //applicable to the STM32F1 series of devices
+
 /* Includes ------------------------------------------------------------------*/
 #include "STM32_interface.hpp"
 #include "tumanako_global.hpp"
@@ -41,13 +43,13 @@
 extern "C" {
 #include "stm32_sine.h" //interface to sine motor control
 
-#include <libopencm3/stm32/rcc.h>
-#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/f1/rcc.h>
+#include <libopencm3/stm32/f1/gpio.h>
 #include <libopencm3/stm32/usart.h>
-#include <libopencm3/stm32/adc.h>
+#include <libopencm3/stm32/f1/adc.h>
 #include <libopencm3/stm32/timer.h>
 #include <libopencm3/stm32/nvic.h>
-#include <libopencm3/stm32/scb.h>
+#include <libopencm3/stm32/f1/scb.h>
 #include <libopencm3/stm32/systick.h>
 #include <libopencm3/cm3/common.h>  //u8 etc
 

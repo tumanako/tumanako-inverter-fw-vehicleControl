@@ -66,7 +66,7 @@ images: $(BINARY)
 
 $(BINARY): $(OBJS) $(LDSCRIPT)
 	@printf "  LD      $(subst $(shell pwd)/,,$(@))\n"
-	$(LD) $(LDFLAGS) -o $(BINARY) $(OBJS) -lstm32sine -lopencm3_stm32 -lc -lnosys
+	$(LD) $(LDFLAGS) -o $(BINARY) $(OBJS) -lstm32sine -lopencm3_stm32f1 -lc -lnosys
 
 %.o: %.cpp Makefile
 	@printf "  CC      $(subst $(shell pwd)/,,$(@))\n"
