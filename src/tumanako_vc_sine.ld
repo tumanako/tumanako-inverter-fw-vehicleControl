@@ -26,6 +26,9 @@ MEMORY
 	ram (rwx)   : ORIGIN = 0x20000000, LENGTH = 64K
 }
 
+SECTIONS {
+	/DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
+}
 
 /* Include the common ld script from libopenstm32. */
 INCLUDE libopencm3_stm32f1.ld

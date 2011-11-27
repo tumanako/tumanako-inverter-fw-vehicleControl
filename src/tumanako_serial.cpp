@@ -65,7 +65,7 @@ void usartInit() {
                 GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
 
   /* Setup UART parameters. */
-  usart_set_baudrate(USART1, 115200, rcc_ppre2_frequency);
+  usart_set_baudrate(USART1, 115200);
   //usart_set_baudrate(USART1, 38400);
   usart_set_databits(USART1, 8);
   usart_set_stopbits(USART1, USART_STOPBITS_1);

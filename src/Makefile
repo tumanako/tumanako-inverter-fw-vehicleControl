@@ -20,23 +20,18 @@
 BINARY		= tumanako_vc_sine
 
 PREFIX		?= arm-none-eabi
-#PREFIX		?= arm-elf
 CC		= $(PREFIX)-g++
 LD		= $(PREFIX)-g++
 OBJCOPY		= $(PREFIX)-objcopy
 OBJDUMP		= $(PREFIX)-objdump
 TOOLCHAIN_DIR = `dirname \`which $(CC)\``/../$(PREFIX)
-#CFLAGS		= -O0 -g -Wall -Wextra -Iinclude -I. -I../../motor_control/src/sine -fno-common \
-#		  -mcpu=cortex-m3 -mthumb -I/home/pccourt/tmp/new_libopenstm32/libopenstm32/include
 CFLAGS		= -O0 -g -Wall -Wextra -Iinclude -I. -I../../motor_control/src/sine -fno-common \
 		 -ffunction-sections -fdata-sections -fno-builtin -fno-rtti -fno-exceptions -fno-unwind-tables -mcpu=cortex-m3 -mthumb
 LDSCRIPT	= $(BINARY).ld
 LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
-      -Wl,--gc-sections,-Map=mapfile,--defsym,_stack=0x20005000 -L../../motor_control/src/sine
-## LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
-      -Wl,-Map=mapfile -L/home/pccourt/sourceforge/tumanako/trunk/inverter/fw/motor_control/src/sine
-## LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
-      -L/home/pccourt/tmp/new_libopenstm32/libopenstm32/lib -L/home/pccourt/sourceforge/tumanako/trunk/inverter/fw/motor_control/src/sine
+		-Wl,--gc-sections,-Map=mapfile,--defsym,_stack=0x20005000 \
+		-L../../motor_control/src/sine \
+		-mthumb -march=armv7 -mfix-cortex-m3-ldrd -msoft-float
 OBJS		= main.o tumanako_inverter.o STM32_sine_interface.o tumanako_serial.o glue.o 
 
 
