@@ -24,11 +24,10 @@ CC		= $(PREFIX)-g++
 LD		= $(PREFIX)-g++
 OBJCOPY		= $(PREFIX)-objcopy
 OBJDUMP		= $(PREFIX)-objdump
-TOOLCHAIN_DIR = `dirname \`which $(CC)\``/../$(PREFIX)
 CFLAGS		= -O0 -g -Wall -Wextra -Iinclude -I. -I../../motor_control/src/sine -fno-common \
 		 -ffunction-sections -fdata-sections -fno-builtin -fno-rtti -fno-exceptions -fno-unwind-tables -mcpu=cortex-m3 -mthumb
 LDSCRIPT	= $(BINARY).ld
-LDFLAGS         = -L$(TOOLCHAIN_DIR)/lib -T$(LDSCRIPT) -nostartfiles \
+LDFLAGS         = -T$(LDSCRIPT) -nostartfiles \
 		-Wl,--gc-sections,-Map=mapfile,--defsym,_stack=0x20005000 \
 		-L../../motor_control/src/sine \
 		-mthumb -march=armv7 -mfix-cortex-m3-ldrd -msoft-float
