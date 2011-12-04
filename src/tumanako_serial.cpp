@@ -52,7 +52,7 @@ extern "C"  {
 
 // Private variables
 char TxBuffer[] = \
-                  " \f" \
+                  " \f\x1b\x5b\x48\x1b\x5b\x32\x4a" \
                   " TumanakoVC - Electric Vehicle and Motor control software\n\r" \
                   " Copyright (C) 2011 Philip Court <philip@greenstage.co.nz>\n\r" \
                   " This program comes with ABSOLUTELY NO WARRANTY.\n\r" \
