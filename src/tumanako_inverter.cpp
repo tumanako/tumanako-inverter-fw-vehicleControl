@@ -24,6 +24,7 @@
 // HISTORY:
 //   Philip Court 5/Aug/2009 - First Cut
 //   Philip Court 15/Mar/2011 - Updated during implementation of STM32_sine_interface.cpp
+//   Philip Court 5/Feb/2012 - Added support for 2 contactor 1 IGBT precharge circuit and added init method to tidy up
 //------------------------------------------------------------------------------
 
 
@@ -167,7 +168,10 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ', At precharge start, not all contactors are off! (not really a precharge error though)'");
     return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   }
-  
+#ifndef TUMANAKO_THREE_RELAY  //i.e. GSCB
+  //TODO For sanity test - turn K3 on first and check we don't see voltage increase (i.e. precharge not on)
+  //Also need to cater for case where caps are still fully charged!
+#endif
   //start precharge
   mSTM32.setK2(false);  //to be sure K2 is off
   mSTM32.setK1(true);
@@ -176,15 +180,19 @@ PreCharge_T TumanakoInverter::doPrecharge() {
 
   printFormat("sbsbsbs","\n\rK1=",mSTM32.getK1(),"\n\rK2=",mSTM32.getK2(),"\n\rK3=",mSTM32.getK3(),"\n\r");
 
-  //Test contactor feedback
+  //Test contactor feedback (K1 is precharge contactor)
+#ifdef TUMANAKO_THREE_RELAY //old style contactor box with 3 gx12 relays
   if (!((mSTM32.getK1() == true) && (mSTM32.getK2() == false) && (mSTM32.getK3() == true))) {
+#else    // GSCB (greenstage contactor box) - ignore K1 (because K1 is IGBT without feedback) 
+  if (!((mSTM32.getK2() == false) && (mSTM32.getK3() == true))) {
+#endif
     mSTM32.shutdownPower(); //contactors off, timers off, everything off!
     usartWriteChars("\nCONTACTOR_FEEDBACK_ERROR - ', Initial contactor setup failed.'");
     return PreCharge_CONTACTOR_FEEDBACK_ERROR;
   }
   
   MyTimer prechargeTimer;
-  
+
   //TODO these two while loops could be combined (must retain 1 sec min precharge time though as a design safety feature - ie code design guarantiees 1 sec precharge even if bugs or feedback errors exist)
     
   //wait "at least" 1 sec and check that voltage is actually rising (or target Voltage reached)
@@ -194,7 +202,7 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     if ((busVoltage > previousBusVoltage) || (busVoltage> TUMANAKO_PRECHARGE_V)) {
       //Voltage is still raising or we have reached target voltage
       previousBusVoltage = busVoltage;
-      mSTM32.wait(100);
+      mSTM32.wait(TUMANAKO_PRECHARGE_ITERATION_WAIT);
     } else { //Error: Voltage is not changing and we have not reached target voltage!
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
       usartWriteChars("\n\n\r  ERROR - 'Voltage is not changing and we have not reached target voltage!'");
@@ -208,7 +216,7 @@ PreCharge_T TumanakoInverter::doPrecharge() {
     printFormat("sIsI","\r\n   PreCharge Phase 2 - BusVolts (V): ",busVoltage,", (digital): ",mSTM32.getRawBusVolt());
     
     if (prechargeTimer.getElapsed() < TUMANAKO_MAX_PRECHARGE_TIME) {  //MAX_PRECHARGE_TIME
-      mSTM32.wait(100); //wait and then try again
+      mSTM32.wait(TUMANAKO_PRECHARGE_ITERATION_WAIT); //wait and then try again
     } else { //Error: MAX_PRECHARGE_TIME has elapsed and precharge not finished!
       mSTM32.shutdownPower(); //contactors off, timers off, everything off!
       usartWriteChars("\n\n\r  ERROR - 'MAX_PRECHARGE_TIME has elapsed and precharge not finished!'");
@@ -281,15 +289,8 @@ short convertToDegrees(short digitalAngle) {
 }
 
 //------------------------------------------------------------------------------
-//Main application loop
-void TumanakoInverter::doIt(void) {
-  //signed long power = 0;
-  //bool oldCrawl = false;
-    
-#ifndef TUMANAKO_SHIRE
-  Direction_T direction = NET;
-#endif
-
+void TumanakoInverter::init(void) {
+  
   //clear lights
   mSTM32.setRunLED(false);
   mSTM32.setErrorLED(false);
@@ -301,9 +302,24 @@ void TumanakoInverter::doIt(void) {
     
   mSTM32.init();
   usartInit();
+}
 
-  //Timers must be created after STM32 init (TODO what about lastFlashTimer!?)
+//------------------------------------------------------------------------------
+//Main application loop
+void TumanakoInverter::doIt(void) {
+  //signed long power = 0;
+  //bool oldCrawl = false;
+  
+  init(); //initiallise all systems  
+  
+#ifndef TUMANAKO_SHIRE
+  Direction_T direction = NET;
+#endif
+  
+  //Timers must be created (or reset) after STM32 init
   MyTimer loopTimer;
+  mLastFlashTimer.reset(); //to cater for the fact this was created before STM32 init
+  mRunTimer.reset(); //to cater for the fact this was created before STM32 init
 
   while (1) { //Main loop
     mLoopTime = loopTimer.getElapsed();
@@ -342,10 +358,10 @@ void TumanakoInverter::doIt(void) {
       }
     } else mCountMinThrottleError=0; //reset error count
 #endif //NOT TUMANAKO_TEST
-    
+
     //Constant speed and Regenerative braking logic
     mMotorRPM = mSTM32.getRPM(); 
-    if ((mAcceleratorRef < 0) && (mMotorRPM < GLIDE_RPM)) { //800)) {
+    if ((mAcceleratorRef < 0) && (mMotorRPM < GLIDE_RPM)) { //800
       //Prevent regen if RPM < START_REGEN_RAMP_RPM (750)
       if (mMotorRPM <= START_REGEN_RAMP_RPM)
         mAcceleratorRef = ZERO_THROTTLE_TORQUE;  //could do with a ramp here as well (this is what makes ShireVan motor surge when idleing occasionally)
@@ -363,7 +379,7 @@ void TumanakoInverter::doIt(void) {
       mAcceleratorRef = 0;
     }
 #endif
-    
+
     //Detect crawl mode and reduce torque appropriately (temp disabled)
     if (false) { //mSTM32.getCrawl() == true)
       mAcceleratorRef/=2;
@@ -446,7 +462,7 @@ void TumanakoInverter::doIt(void) {
       }
 
 #ifndef TUMANAKO_TEST  //can't test this easily on the test rig currently
-#ifdef TUMANAKO_PRECHARGE_TEST  //remove precharge values if this is not defined
+#ifdef TUMANAKO_PRECHARGE_TEST  //do precharge test output
       //Check contactor feedback
       if ( ! mSTM32.getContactorsInRunStateConfiguration() ) {
         //Go to error state and Log error to serial
@@ -481,6 +497,11 @@ void TumanakoInverter::stateMachineDo(void) {
     case 3:
       //This case is checked after the contactors are engaged
       //usartWriteChars("ERROR - 'testVariousMotorParam UNDERVOLTAGE'");
+      break;
+      
+    case 4:
+      mState = RunState_ERROR;
+      usartWriteChars("\n\n\r  ERROR - 'testVariousMotorParam OVER_CURRENT' - TODO: this needs implementing and testing");
       break;
 
     default:
@@ -522,6 +543,7 @@ void TumanakoInverter::stateMachineDo(void) {
       //inidicate Contactors being engaged (all dash lights on)
       mSTM32.setRunLED(true);
       mSTM32.setErrorLED(true);
+
 #ifdef TUMANAKO_PRECHARGE_TEST
       //do precharge (only do it once though!  State machine needed here)
       if (doPrecharge() != PreCharge_OK) {
@@ -641,7 +663,7 @@ void TumanakoInverter::stateMachineDo(void) {
     //TODO wait here for ever
     
     //TODO move all usartWriteChars calls to here to reduce time to shutdown.
-    //Use variable to pass appropriate Error message.
+    //TODO Use variable to pass appropriate Error message.    
     break;
 
   default:
@@ -658,8 +680,8 @@ void TumanakoInverter::dashboard()
 {
   static unsigned long count=0;
 
-  //Only output serial port data once every 5000 times
-  if (count == 5000) {
+  //Only output serial port data once every 10000 times
+  if (count == 10000) {
     //signed short phaseC = getPhaseC(mSTM32.getPhase1(), mSTM32.getPhase2());
     signed short phaseC = mSTM32.getPhase3();
     float current = TK_ABS(mSTM32.getPhase1()) + TK_ABS(mSTM32.getPhase2()) + TK_ABS(phaseC);
@@ -685,7 +707,7 @@ void TumanakoInverter::dashboard()
       printFormat("sIs","RotorTimeConst: ",mSTM32.getRotorTimeConstant(), " ");
       printFormat("sIs","      SlipFreq: ",mSTM32.getSlipFreq(), "\r\n");
       printFormat("sIs","     FluxAngle: ",convertToDegrees(mSTM32.getFluxAngle()), " ");
-      printFormat("sIs" ," RunTime (sec): ",mRunTimer.getElapsed(), "\r\n");
+      printFormat("sIs" ," RunTime (sec): ",mRunTimer.getElapsed()/1000, "\r\n");  //display secounds (rather than ms)
 //      printFormat("sI" ," ElectricAngle: ",convertToDegrees(mSTM32.getElectricalAngle()));
   
       count=0;

@@ -48,6 +48,7 @@ class TumanakoInverter {
   void checkVehcileControlInputs();
   void stateMachineDo(void);
   void dashboard();
+  void init();
   PreCharge_T doPrecharge(void);
   void flash();  //Flash a LED
   void delay(int multiple); //delay (multiple times)
