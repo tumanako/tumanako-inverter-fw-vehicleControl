@@ -191,7 +191,7 @@ public:
   void motorTempSensorInit();
 
   //TODO tidy these methods away
-  void adc_setup(void);
+  void adc_setup(u32 adc_port);
   u8 adcchfromport(int command_port, int command_bit);
 
 #ifdef USE_FILTER

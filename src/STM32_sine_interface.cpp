@@ -242,12 +242,16 @@ unsigned short STM32Interface::getRawScaledBusVolt() {
   // si.eu (scaled enginerring units - fixed point and float versions)
   // si.digital (raw digital value)
 
-  return ((u16)(( (u32)getRawBusVolt() * 1000)/32444));
+  //return ((u16)(( (u32)getRawBusVolt() * 1000)/32444));
+  return (getRawBusVolt());  //needs scaling
 }
 
 //returns the digital bus voltage A/D conversion without SI unit scaling
 unsigned short STM32Interface::getRawBusVolt() {
-  return (ADC2_JDR2 >> 3);  //right allignment of injected data register 2
+  //return (ADC2_JDR2 >> 3);  //right allignment of injected data register 2
+  adc_on(ADC2); // If the ADC_CR2_ON bit is already set -> setting it another time starts the conversion
+  while (!(ADC_SR(ADC2) & ADC_SR_EOC)) {};  // Waiting for end of conversion 
+  return (ADC_DR(ADC2) & 0xFFF);   // read adc data (needs scalling!!!)
 }
 
 
@@ -400,28 +404,37 @@ void gpioInit() {
 
 }
 
-void STM32Interface::adc_setup(void) {
-  rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_ADC1EN);
+void STM32Interface::adc_setup(u32 adc_port) {
+  switch (adc_port) {
+     case ADC1:  rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_ADC1EN);
+        break;
+     case ADC2:  rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_ADC2EN);
+        break;
+     case ADC3:  rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_ADC3EN);
+        break;
+     default: shutdownPower();  while(1) {};  //TODO log something (should never happen)
+        break;
+  }
 
   /* make sure it didnt run during config */
-  adc_off(ADC1);
+  adc_off(adc_port);
 
   /* we configure everything for one single conversion */
-  adc_disable_scan_mode(ADC1);
-  adc_set_single_conversion_mode(ADC1);
-  adc_enable_discontinous_mode_regular(ADC1);
-  adc_disable_external_trigger_regular(ADC1);
-  adc_set_right_aligned(ADC1);
+  adc_disable_scan_mode(adc_port);
+  adc_set_single_conversion_mode(adc_port);
+  adc_enable_discontinous_mode_regular(adc_port);
+  adc_disable_external_trigger_regular(adc_port);
+  adc_set_right_aligned(adc_port);
   /* we want read out the temperature sensor so we have to enable it */
-  adc_enable_temperature_sensor(ADC1);
-  adc_set_conversion_time_on_all_channels(ADC1, ADC_SMPR_SMP_28DOT5CYC);
+  adc_enable_temperature_sensor(adc_port);
+  adc_set_conversion_time_on_all_channels(adc_port, ADC_SMPR_SMP_28DOT5CYC);
 
-  adc_on(ADC1);
+  adc_on(adc_port);
   /* wait for adc starting up*/
   for (volatile int i = 0; i < 80000; i++) {}; // wait (volitile removes need for -O0 CFLAGS). */
 
-  adc_reset_calibration(ADC1);
-  adc_calibration(ADC1);
+  adc_reset_calibration(adc_port);
+  adc_calibration(adc_port);
 }
 
 //TODO this has been copied and pasted from sine code (tidy up!)
@@ -430,7 +443,7 @@ u8 STM32Interface::adcchfromport(int command_port, int command_bit) {
    PA0 ADC12_IN0
    PA1 ADC12_IN1
    PA2 ADC12_IN2
-   PA3 ADC12_IN3
+   PA3 ADC12_IN3 - Bus Voltage
    PA4 ADC12_IN4
    PA5 ADC12_IN5
    PA6 ADC12_IN6
@@ -441,7 +454,7 @@ u8 STM32Interface::adcchfromport(int command_port, int command_bit) {
    PC1 ADC12_IN11
    PC2 ADC12_IN12
    PC3 ADC12_IN13
-   PC4 ADC12_IN14
+   PC4 ADC12_IN14 - Accellerator POT input
    PC5 ADC12_IN15
    temp ADC12_IN16
    */
@@ -472,7 +485,7 @@ void motorTemperatureInit() {
   //Enable GPIOC clock
   RCC_APB2ENR |= RCC_APB2ENR_IOPCEN;
 
-  //Set GPIOC Pin 8 as input floating
+  //Set GPIOC Pin 8 as input floating (motor temperature - freq maps to temperature)
   gpio_set_mode(
       GPIOC,
       GPIO_MODE_INPUT,
@@ -490,10 +503,10 @@ void motorTemperatureInit() {
  
   //(CC1 input, IC1 mapped onto TI1) and OC1Ref is cleared when High detected on ETRF input
   TIM3_CCMR1 |= 0x04 | 0x01;
-  TIM3_CR2 |= 0x0080;
-  TIM3_SMCR = 0x50 | 0x07; //TI1FR1 (b101) and SMS = external clock mode 1
-  TIM3_SR = ~0x0001; //Update flag
-  TIM3_DIER |= 0x0001; //IT update
+  TIM3_CR2 |= 0x0080;  //Set TI1S (CH1, CH2 and CH3 are connected to the TI1 input (XOR)
+  TIM3_SMCR = 0x50 | 0x07; //TI1FR1 (b101) and SMS = external clock /mode 1
+  TIM3_SR = ~((u16)0x0001); //Clear Update interupt flag (UIF)
+  TIM3_DIER |= 0x0001; //IT update (UIE - update interupt enable)
   TIM3_CNT = 0;   //Clear counter
   TIM3_CR1 |= TIM_CR1_CEN;  //Finally, enable it!
 }
@@ -513,13 +526,20 @@ int STM32Interface::init(void) {
 
   //analogue init
   static u8 channel_array[16] = {16,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0};
+  static u8 channel_array_volt[16] = {16,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0};
 
   //clock_setup(); this is done in the main
-  adc_setup();    /* todo: check setup of analog peripheral*/
+  adc_setup(ADC1);
 
   gpio_set_mode(GPIOC, GPIO_MODE_INPUT, GPIO_CNF_INPUT_ANALOG, GPIO4);
-  channel_array[0] = adcchfromport(2,4);
+  channel_array[0] = adcchfromport(2,4); //2=C
   adc_set_regular_sequence(ADC1, 1, channel_array);
+
+  //Setup DC Bus volt analogue (on ADC2) - TODO will need to utilise the ADC more effectively with IFOC
+  adc_setup(ADC2);
+  gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_ANALOG, GPIO3);
+  channel_array_volt[0] = adcchfromport(0,3); //0=A
+  adc_set_regular_sequence(ADC2, 1, channel_array_volt);
 
   return 0;
 }
@@ -575,8 +595,7 @@ bool STM32Interface::busVoltageOK(void) {
 
 //Get current bus voltage (via a historical 16 reading average)
 short STM32Interface::busVoltage(void) {
-  //TODO:PCC
-  return 1024;
+  return getRawScaledBusVolt();
 }
 
 //Get current temperature from power stage
