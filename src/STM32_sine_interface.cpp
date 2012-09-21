@@ -35,6 +35,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "STM32_interface.hpp"
 #include "tumanako_global.hpp"
+#include "tumanako_vehicle_configuration.h"
 
 #ifdef TUMANAKO_USE_FILTER
 #include "filter/filter.hpp"
@@ -132,6 +133,10 @@ s16 calcMotorTemperature(void);
 }  //end extern "c"
 
 //DIGITAL INPUTS
+#define TK_BRAKE_PIN        GPIO13 //Detects brake pedal pushed and triggers optional slight regen
+#define TK_BRAKE_PORT       GPIOD
+#define TK_REGEN_PIN        GPIO5  //Detects regen switch is turned on and enables the optional regen
+#define TK_REGEN_PORT       GPIOB
 #define TK_IGN_PIN          GPIO7  //Triggers engagement of contactors (Ignition key on)
 #define TK_IGN_PORT         GPIOE
 #define TK_START_PIN        GPIO10  //Triggers transition to run mode (Start/Run button pushed)
@@ -155,6 +160,12 @@ s16 calcMotorTemperature(void);
 #define TK_ERROR_LED_PORT   GPIOA
 #define TK_RUN_LED_PIN      GPIO11  //This output controls the Run LED (Green) on the dashboard
 #define TK_RUN_LED_PORT     GPIOA
+
+//LEDS on the KiwiAC board
+#define TK_KIWIAC_RED_LED_PIN GPIO6
+#define TK_KIWIAC_RED_LED_PORT GPIOC
+#define TK_KIWIAC_BLUE_LED_PIN GPIO7
+#define TK_KIWIAC_BLUE_LED_PORT GPIOC
 
 //#ifdef TUMANAKO_KIWIAC
 //Contactor IO (smart card)
@@ -204,6 +215,10 @@ void STM32Interface::sysTickInit() {
   systick_interrupt_enable();
 }
 
+void STM32Interface::systemReset() {
+  //TODO implement me
+}
+
 //TODO - remove these
 unsigned long STM32Interface::getMillisecTimer() {
   return TimeBase_;
@@ -238,7 +253,7 @@ unsigned short STM32Interface::getRawScaledBusVolt() {
   //KiwiAC max = 10 * 3.3/10.1 (99% of full 3.3V scale)
   //(10 * 3.3/10.1) * 32768 = 32444
 
-  //TODO create SI unit object.  All data exposed via these objects
+  //TODO create SI unit object (done! See digital.hpp class, just need to use it now...).  All data exposed via these objects
   // si.eu (scaled enginerring units - fixed point and float versions)
   // si.digital (raw digital value)
 
@@ -296,10 +311,24 @@ short STM32Interface::getElectricalAngle() {
   //TODO - part of IFOC
   return 1024;
 }
+long STM32Interface::getInstantaniousCurrent() {
+  //TODO
+  return 1024;
+}
+bool STM32Interface::getWatchdogTimout() {
+  //TODO
+  return false;
+}
 
 // ==== IO from the vehcile loom ====
 
 // ==== Physical Inputs ====
+bool STM32Interface::getBrakeOn(void) {
+  return (gpio_get(TK_BRAKE_PORT, TK_BRAKE_PIN) == 0);
+}
+bool STM32Interface::getEnableRegen(void) {
+  return (gpio_get(TK_REGEN_PORT, TK_REGEN_PIN) == 0);
+}
 
 bool STM32Interface::getIGN(void) { //Ignition switch on or off?
   return (gpio_get(TK_IGN_PORT, TK_IGN_PIN) == 0);
@@ -340,14 +369,24 @@ bool STM32Interface::getEmergencyStop(void) { //Has the emergency stop been acti
 
 // ==== Physical Outputs ====
 
-void STM32Interface::setErrorLED(bool value) { //Show red error light
+void STM32Interface::setErrorLED(bool value) { //Show red error light on dash
   if (value == true) gpio_set(TK_ERROR_LED_PORT, TK_ERROR_LED_PIN);
   else gpio_clear(TK_ERROR_LED_PORT, TK_ERROR_LED_PIN);
 }
 
-void STM32Interface::setRunLED(bool value) { //Show green run light
+void STM32Interface::setRunLED(bool value) { //Show green run light on dash
   if (value == true) gpio_set(TK_RUN_LED_PORT, TK_RUN_LED_PIN);
   else gpio_clear(TK_RUN_LED_PORT, TK_RUN_LED_PIN);
+}
+
+void STM32Interface::setKiwiACRedLED(bool value) { //Show red light on kiwiAC board
+  if (value == true) gpio_set(TK_KIWIAC_RED_LED_PORT, TK_KIWIAC_RED_LED_PIN);
+  else gpio_clear(TK_KIWIAC_RED_LED_PORT, TK_KIWIAC_RED_LED_PIN);
+}
+
+void STM32Interface::setKiwiACBlueLED(bool value) { //Show blue light on kiwiAC board
+  if (value == true) gpio_set(TK_KIWIAC_BLUE_LED_PORT, TK_KIWIAC_BLUE_LED_PIN);
+  else gpio_clear(TK_KIWIAC_BLUE_LED_PORT, TK_KIWIAC_BLUE_LED_PIN);
 }
 
 // Reads the value of the specified ADC channel
@@ -549,7 +588,10 @@ signed short STM32Interface::getTorque(void) { //read current value of Torque
   //WARNING this is temp code (motor control for stm32_sine is in tim1_up_isr)
   return STM32_SINE_SineSpeed;  //TODO - add some speed to torque type logic here
 }
-
+signed short STM32Interface::getTorqueVq(void) {
+  //TODO - only relevant with IFOC impl
+  return 1024;
+}
 void STM32Interface::setTorque(signed short torque) { //Set the target Torque value (used in torque control algorithm)
   //WARNING this is temp code (motor control for stm32_sine is in tim1_up_isr)
   STM32_SINE_SineSpeed =  10*torque;  //TODO - add some torque to speed type logic here
@@ -569,6 +611,10 @@ signed short STM32Interface::getFlux(void) { //read current value of rotor Flux
   //TODO
   return 1024;
 }
+signed short STM32Interface::getFluxVd(void) {
+  //TODO - only relevant for IFOC imipl
+  return 1024;
+}
 void STM32Interface::setFlux(signed short) { //Set the target rotor Flux value (used in torque control algorithm)
   //TODO
 }
@@ -580,17 +626,6 @@ signed short STM32Interface::getRPM(void) { //read current value of motor RPM
 }
 void STM32Interface::setRPM(signed short) { //Set the target RPM (speed control loop only)
   //TODO
-}
-
-//Is the bus voltage OK? (TODO - more work needed here.  Must expose limits etc...)
-bool STM32Interface::busVoltageOK(void) {
-  unsigned short busVolt = getRawScaledBusVolt();
-
-  //  check bus over voltage
-  if ((busVolt >= TUMANAKO_PRECHARGE_V) && (busVolt <= TUMANAKO_MAX_BUX_V ))
-    return true;
-  else
-    return true;
 }
 
 //Get current bus voltage (via a historical 16 reading average)
@@ -613,16 +648,14 @@ short STM32Interface::motorTemperature(void) {
 short STM32Interface::testVariousMotorParam(void) {
   unsigned short busVolt = getRawScaledBusVolt();
 
-  //TODO make enum
-
   //  check over temperature of power stage
   if (false) { //TODO
-    return 1; //OVERHEAT;
+    return MotorParamTest_PWR_STG_OVERHEAT; //OVERHEAT;
   }
 
   //  check bus over voltage
-  if (busVolt > TUMANAKO_MAX_BUX_V ) {
-    return 2; //OVER_VOLTAGE
+  if (busVolt > TUMANAKO_MAX_BUS_V ) {
+    return MotorParamTest_TUMANAKO_MAX_BUS_V; //OVER_VOLTAGE
   }
 
 #ifdef TUMANAKO_UNDERVOLTAGE_TEST
@@ -632,9 +665,9 @@ short STM32Interface::testVariousMotorParam(void) {
   if (false)  //dont test undervoltage
 #endif
   {
-    return 3; //UNDER_VOLTAGE
+    return MotorParamTest_UNDERVOLTAGE; //UNDER_VOLTAGE
   }
-  return 0; //All OK
+  return MotorParamTest_OK; //All OK
 }
 
 //Contactor controls (See diagram here: http://liionbms.com/php/precharge.php)

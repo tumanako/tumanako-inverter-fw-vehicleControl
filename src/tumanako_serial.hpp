@@ -25,10 +25,18 @@ void usartInit();
 void usartWrite(long a, long b, long c, long d, long e);
 
 //write null terminated sequence of chars
-void usartWriteChars(char * chars);
 void usartWriteChars(const char * chars);
 
+//------------------------------------------------------------------------------
 //write variable number of parameters
+//Format Options:
+// f double (1dp)
+// F double (4dp)
+// i int (use min 3 chars)
+// I int (use min 5 chars)
+// b boolean
+// s string (char *)
+//------------------------------------------------------------------------------
 void printFormat( const char* Format, ... );
 
 void usartWriteDisclaimer();

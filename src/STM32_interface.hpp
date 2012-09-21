@@ -39,7 +39,9 @@
 #define USE_FILTER
 
 /* Includes ------------------------------------------------------------------*/
-#include "filter/filter.hpp"  //temp for now
+#ifdef TUMANAKO_USE_FILTER
+#include "filter/filter.hpp"
+#endif
 
 extern "C"
 {
@@ -49,6 +51,7 @@ extern "C"
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
 typedef enum {Input_IGN, Input_START, Input_CRAWL, Input_FWD, Input_REV} Input_T;
+typedef enum {MotorParamTest_OK, MotorParamTest_PWR_STG_OVERHEAT, MotorParamTest_TUMANAKO_MAX_BUS_V, MotorParamTest_UNDERVOLTAGE, MotorParamTest_BRK_HIGH} MotorParamTest_T;
 
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */
@@ -69,6 +72,7 @@ public:
 
   void sysTickInit();
 
+  void systemReset();
   unsigned long getMillisecTimer();
   void resetMillisecTimer();
 
@@ -89,14 +93,20 @@ public:
   long getSlipFreq();
   short getFluxAngle();
   short getElectricalAngle();
+  long getInstantaniousCurrent();
+  
+  bool getWatchdogTimout();  //used by logging to determine if watchdog has fired
 
   /**IO from the vehcile loom*/
 
   //Physical INPUT
+  bool getBrakeOn(void); //Brake pedal pushed?
+  bool getEnableRegen(void); //Is Regen mode turned on?
   bool getIGN(void);  //Ignition switch on or off?
   bool getRAWStart(void);  //Raw one off read of Start button digital line (is it engaged or noise though?)
-  bool getStart(void);  //Start button engaged? (same as above, except through a software noise filter)
-  bool getCrawl(void);  //Crawl switch on or off?
+  bool getStart(void);  //Filtered Start button engaged? (same as above, except through a software noise filter)
+  bool getRAWCrawl(void);  //One off read, Crawl switch on or off?
+  bool getCrawl(void);  //Filtered Crawl switch on or off?
   bool getFWD(void);   //Forward selected?
   bool getREV(void);  //Reverse selected?
 
@@ -111,6 +121,8 @@ public:
   //Physical OUTPUT
   void setErrorLED(bool value); //Show red error light
   void setRunLED(bool value); //Show green run light
+  void setKiwiACRedLED(bool value); //Show red light on kiwiAC board
+  void setKiwiACBlueLED(bool value); //Show blue light on kiwiAC board
 
   // Reads the value of the specified ADC channel
   unsigned short readADC(unsigned char channel);  //:TODO: needs to be encapsulated into +ve torque and -ve torque etc
@@ -119,15 +131,18 @@ public:
   int init(void);
 
   // Getter/Setters for the current torque setting (Iq)
-  signed short getTorque(void); //read current value of Torque
+  signed short getTorque(void); //read system feedback value for Torque
+  signed short getTorqueVq(void);  //PID Vq output
   void setTorque(signed short); //Set the target Torque value (used in torque control algorithm)
 
   // Getter/Setters for the current speed
   signed short getSpeed(void); //read current value of Speed
   void setSpeed(signed short); //Set the target Speed value (not implemented yet)
 
+
   // Getter/Setters for the current flux setting (Id)
-  signed short getFlux(void); //read current value of rotor Flux
+  signed short getFlux(void); //read system feedback value for flux
+  signed short getFluxVd(void);  //PID Vd output
   void setFlux(signed short); //Set the target rotor Flux value (used in torque control algorithm)
 
   // Getter/Setters for the current speed (RPM) setting
@@ -145,6 +160,9 @@ public:
   
   //Get current temperature from motor (returns most recent reading from previous instantanious value calculated once every secound.  TODO compute running average).
   short motorTemperature(void);
+  
+  //for debugging temperature calibration
+  short motorTempFreq(void);
 
   //returns 0 if no issues (1 = Powerstage overheat, 2 = Bus over voltage, 3 = Bus undervoltage. TODO needs enum)
   short testVariousMotorParam(void);
@@ -185,18 +203,14 @@ public:
 
   //Shutdown motor control and power stage (disable PWM, disconnect contactors, zero IFOC outputs and shutdown motor controller state machine)
   void shutdownPower();
-
-  private:
+  
+private:
   //Prepare Timer 3 to measure motor temp (KiwiAC STM32MCU board specific - converts KTY84 resistance to freq)
   void motorTempSensorInit();
 
   //TODO tidy these methods away
   void adc_setup(u32 adc_port);
   u8 adcchfromport(int command_port, int command_bit);
-
-#ifdef USE_FILTER
-    filter myFilter_;
-#endif
 
 };
 #endif // STM32_INTERFACE_HPP_INCLUDED
