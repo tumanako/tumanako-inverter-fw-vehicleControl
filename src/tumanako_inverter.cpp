@@ -34,9 +34,11 @@
 #include <cmath>
 #include <time.h>
 
-#ifdef USING_LIBOPENCM3
-#include <wwdg.h>
-#endif
+#define STM32F1  //applicable to the STM32F1 series of devices
+#include <libopencm3/cm3/common.h>
+#include <libopencm3/stm32/f1/rcc.h>
+#include <libopencm3/stm32/f1/memorymap.h>
+#include <libopencm3/stm32/wwdg.h>
 
 #include "tumanako_inverter.hpp"
 #include "tumanako_serial.hpp"
@@ -313,7 +315,7 @@ void enableWatchdog () {
     #define PERIPH_BITBAND_BASE 0x42000000
 
     u32 bit_word_offset = ((WWDG_CFR - PERIPH_BASE) * 32) + (WWDG_CFR_EWI_BIT * 4);
-    (*(vu32 *) (PERIPH_BITBAND_BASE + bit_word_offset)) = (u32)1;  //enable EWI
+    (*(volatile u32 *) (PERIPH_BITBAND_BASE + bit_word_offset)) = (u32)1;  //enable EWI
 
     WWDG_CR = 0x80 | 0x7f;  //Enablei WWDG! 0x80=Watchdog activation bit.  0x40 = min delay (113 us), use 0x7F for max delay (7.28 ms)
 
