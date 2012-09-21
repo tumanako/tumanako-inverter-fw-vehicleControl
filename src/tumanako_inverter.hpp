@@ -41,24 +41,46 @@ class TumanakoInverter {
 //Constructor
   TumanakoInverter();
 
-  void doIt(void);  //manage main loop and vechile state machine
+// Get status of the contactors (requires ignition on first)
+  bool getContactorsEngaged(void);
+
+// Get status of the driving direction
+// TRUE = forwards
+// FALSE = backwards
+// should have double logic (i.e. two bits to check?)  If not consistant shut
+// down or stay in fwd...
+  Direction_T getDirection(void);
+
+  void checkVehcileControlInputs();
+  void doIt(void);
+  void stateMachineDo(void);
+  
+  void dashboard();
 
  private:
-  Direction_T getDirection(void); //Get status of the driving direction
-  void checkVehcileControlInputs();
-  void stateMachineDo(void);
-  void dashboard();
   void init();
   PreCharge_T doPrecharge(void);
-  void flash();  //Flash a LED
+  void flash();  //Flash the green RUN LED
   void delay(int multiple); //delay (multiple times)
+  void turnOff();  //handle IGN key off
+  bool busVoltageOK(void);
 
   unsigned long mLoopTime; 
-  MyTimer mRunTimer; 
+  MyTimer mRunTimer;
   signed short mMotorRPM;
+  signed short mAbsoluteMotorRPM;
   unsigned short mFlux;  //Rotor flux set point
   short mAcceleratorRef;  //actually this represents +ve and -ve torque
+  short mAcceleratorRefSmooth; //smooths value we are sending to IFOC
+  short mAccelRetardCount;  //limits max requested torque (can occur during over temperature events etc)
+  short mSpeedBasedTorqueLimit;  //limits max torque based on motor RPM
   unsigned short mRawAcceleratorRef;  //from ADC
+  long mBusCurrent;
+  long mBusCurrentAvg;
+  Direction_T mDirection;
+  short mMotorTemp;
+  short mPowerStageTemp;
+  bool  mTorqueLimitOccured;
   STM32Interface mSTM32;
   RunState_T mState;
   bool mOldIGN; //used for debounce TODO update to use filter
@@ -70,8 +92,9 @@ class TumanakoInverter {
   short mCountMinThrottleError;
   short mCountMaxThrottleError;
   unsigned short mMotorStallError;
-  unsigned short mMotorDirectionError;
+  unsigned short mDirectionError;  //Digital Input logic
   MyTimer mLastFlashTimer;
+  //string mErrorString;  //TODO used to report error when inverter shutdown initiated due to falt
 };
 
 #endif // TUMANAKO_INVERTER_HPP
