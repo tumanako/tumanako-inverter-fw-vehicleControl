@@ -30,7 +30,7 @@ LDSCRIPT	= $(BINARY).ld
 LDFLAGS         = -T$(LDSCRIPT) -nostartfiles \
 		-Wl,--gc-sections,-Map=mapfile,--defsym,_stack=0x20005000 \
 		-L../../motor_control/src/sine \
-		-mthumb -march=armv7 -mfix-cortex-m3-ldrd -msoft-float
+		-mcpu=cortex-m3 -mthumb -msoft-float
 OBJS		= main.o tumanako_inverter.o STM32_sine_interface.o tumanako_serial.o glue.o 
 
 
